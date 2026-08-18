@@ -14,6 +14,7 @@
 //! ```
 
 mod framing;
+pub mod payment;
 mod protocol;
 mod retrieval;
 mod sdp;

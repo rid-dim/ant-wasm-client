@@ -1,0 +1,166 @@
+{
+  "proof": {
+    "commitment_sidecars_hex": [
+      "080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd04",
+      "272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a8188"
+    ],
+    "peer_quotes": [
+      {
+        "peer_id_hex": "3940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b12",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a3101f15365000000001403f2e1d0bfae9d8c7b6a594837261504f3e2d1c0af9e8d7c6b5a4938271605777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc0000000000",
+          "commitment_pin_hex": null,
+          "committed_key_count": 0,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "c6d6fd31418bc80946eaf5e3b3c0e9e51b59c5a0aae414ec4d5a3957069a1fb5",
+          "price_be_hex": "05162738495a6b7c8d9eafc0d1e2f30415263748596a7b8c9daebfd0e1f20314",
+          "price_dec": "2300705563930988458089253558342557035905187152059957057245229358137509806868",
+          "pub_key_fill": 7,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc",
+          "signature_fill": 9,
+          "signature_len": 3309,
+          "timestamp_nanos": 0,
+          "timestamp_secs": 1700000001
+        }
+      },
+      {
+        "peer_id_hex": "6f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a4148",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a3102f15365000000000000000000000000000000000000000000000000000000000000000000000000adb4bbc2c9d0d7dee5ecf3fa01080f161d242b320100000001ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5",
+          "commitment_pin_hex": "ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5",
+          "committed_key_count": 1,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "5ba8fd8e1af2873bfd370556fe153ec02520d8c8d3d17367f368bc52ad9c194d",
+          "price_be_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "price_dec": "0",
+          "pub_key_fill": 170,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "adb4bbc2c9d0d7dee5ecf3fa01080f161d242b32",
+          "signature_fill": 255,
+          "signature_len": 3309,
+          "timestamp_nanos": 999999999,
+          "timestamp_secs": 1700000002
+        }
+      },
+      {
+        "peer_id_hex": "a5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a3103f15365000000001e0dfcebdac9b8a7968574635241301f0efdecdbcab9a897867564534231200fe3eaf1f8ff060d141b222930373e454c535a6168ffffffff010000000000000000000000000000000000000000000000000000000000000000",
+          "commitment_pin_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "committed_key_count": 4294967295,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "758f8c5fd2e29ea29ee99fa8aac838ca55d8d64d286edad0d1faa99c18bb537e",
+          "price_be_hex": "0f2031425364758697a8b9cadbecfd0e1f30415263748596a7b8c9daebfc0d1e",
+          "price_dec": "6841571808531623572739096107702867147798127727183116431341605201585083518238",
+          "pub_key_fill": 128,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "e3eaf1f8ff060d141b222930373e454c535a6168",
+          "signature_fill": 127,
+          "signature_len": 3309,
+          "timestamp_nanos": 1,
+          "timestamp_secs": 1700000003
+        }
+      },
+      {
+        "peer_id_hex": "dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a310000000000000000231201f0dfcebdac9b8a7968574635241302f1e0cfbead9c8b7a6958473625141920272e353c434a51585f666d747b828990979e2c01000000",
+          "commitment_pin_hex": null,
+          "committed_key_count": 300,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "ceca59d8c870ebf74c381ddc41d053ff3ab815ae781fd667cc40b3b716d4f653",
+          "price_be_hex": "1425364758697a8b9cadbecfe0f102132435465768798a9bacbdcedff0011223",
+          "price_dec": "9112004930831941130064017382382999902999399484121554582671520474947347616291",
+          "pub_key_fill": 0,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "1920272e353c434a51585f666d747b828990979e",
+          "signature_fill": 1,
+          "signature_len": 3309,
+          "timestamp_nanos": 0,
+          "timestamp_secs": 0
+        }
+      },
+      {
+        "peer_id_hex": "11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3ea",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a3105f1536500000000281706f5e4d3c2b1a08f7e6d5c4b3a291807f6e5d4c3b2a1907f6e5d4c3b2a194f565d646b727980878e959ca3aab1b8bfc6cdd400000100016e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b32394047",
+          "commitment_pin_hex": "6e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b32394047",
+          "committed_key_count": 65536,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "6f08f41e5541eb7a5c128a68e2a2b4c203a4e76bb96677bdaa324a46c3ab9133",
+          "price_be_hex": "192a3b4c5d6e7f90a1b2c3d4e5f60718293a4b5c6d7e8fa0b1c2d3e4f5061728",
+          "price_dec": "11382438053132258687388938657063154958945869771683134269719708396671134471976",
+          "pub_key_fill": 7,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "4f565d646b727980878e959ca3aab1b8bfc6cdd4",
+          "signature_fill": 9,
+          "signature_len": 3309,
+          "timestamp_nanos": 500000000,
+          "timestamp_secs": 1700000005
+        }
+      },
+      {
+        "peer_id_hex": "474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a310000000001000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a0000000000",
+          "commitment_pin_hex": null,
+          "committed_key_count": 0,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "3df22a1dd618b041d22eb92738e655bdc048160bde51cb12a23b63fe438a2f04",
+          "price_be_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "price_dec": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+          "pub_key_fill": 7,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a",
+          "signature_fill": 9,
+          "signature_len": 3309,
+          "timestamp_nanos": 7,
+          "timestamp_secs": 4294967296
+        }
+      },
+      {
+        "peer_id_hex": "7d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f56",
+        "quote": {
+          "bytes_for_sig_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a3107f1536500000000322110ffeeddccbbaa99887766554433221100efdecdbcab9a89786756453423bbc2c9d0d7dee5ecf3fa01080f161d242b3239408000000001dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3",
+          "commitment_pin_hex": "dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3",
+          "committed_key_count": 128,
+          "content_hex": "585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31",
+          "hash_hex": "5a5afcb4cb1dad1ed6e84c3c98b676ecb59c64ab9da958597aaae8a1bb75b63d",
+          "price_be_hex": "233445566778899aabbccddeef00112233445566778899aabbccddeeff102132",
+          "price_dec": "15923304297732893802038781206417756080067986507282060499938286259573177196850",
+          "pub_key_fill": 7,
+          "pub_key_len": 1952,
+          "rewards_address_hex": "bbc2c9d0d7dee5ecf3fa01080f161d242b323940",
+          "signature_fill": 9,
+          "signature_len": 3309,
+          "timestamp_nanos": 42,
+          "timestamp_secs": 1700000007
+        }
+      }
+    ],
+    "tag_byte": 1,
+    "total_len": 46478,
+    "tx_hashes_hex": [
+      "e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2"
+    ]
+  },
+  "quote": {
+    "bytes_for_sig_hex": "222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb00f15365000000000100fecaefbeadde0d000000000000000000000000000000000000000000000041484f565d646b727980878e959ca3aab1b8bfc6327906000160676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b3239",
+    "commitment_pin_hex": "60676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b3239",
+    "committed_key_count": 424242,
+    "content_hex": "222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb",
+    "hash_hex": "a6705b89af9279e7e5c38b0539a602d02c9716b6dc260dc2bdf68d6b5e0d60cd",
+    "price_be_hex": "00000000000000000000000000000000000000000000000ddeadbeefcafe0001",
+    "price_dec": "255853363942727221249",
+    "pub_key_fill": 7,
+    "pub_key_len": 1952,
+    "rewards_address_hex": "41484f565d646b727980878e959ca3aab1b8bfc6",
+    "signature_fill": 9,
+    "signature_len": 3309,
+    "timestamp_nanos": 123456789,
+    "timestamp_secs": 1700000000
+  },
+  "quote_rmp_head_hex": "98dc0020222930373e454c535a61686f767dcc84cc8bcc92cc99cca0cca7ccaeccb5ccbcccc3cccaccd1ccd8ccdfcce6ccedccf4ccfb92ce6553f100ce075bcd",
+  "quote_rmp_len": 5446
+}
