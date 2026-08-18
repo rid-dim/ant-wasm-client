@@ -83,7 +83,8 @@ impl Retrieval {
         self.root_resolved && self.required_addresses().is_empty()
     }
 
-    /// Total chunks referenced by the current map.
+    /// Total chunks referenced by the current map (for progress reporting).
+    #[allow(dead_code)]
     pub fn chunk_count(&self) -> usize {
         self.map.infos().len()
     }

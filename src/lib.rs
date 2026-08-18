@@ -1,18 +1,26 @@
-//! Browser WASM client for the Autonomi WebRTC-Direct lane (ADR-0010).
+//! Browser WASM client for the Autonomi WebRTC-Direct lane (ADR-0010),
+//! no-relay architecture.
 //!
-//! Connects an ordinary web page directly to an ant-node — no signaling
-//! server, no CA certificate, no installation. All security properties live
-//! in this client: the DTLS certificate is pinned by fingerprint, the
-//! node's identity is verified post-quantum (ML-DSA-65 + PeerId pinning),
-//! every message rides the mandatory PQC tunnel (ML-KEM-768 +
+//! Connects an ordinary web page directly to the Autonomi network — no
+//! signaling server, no CA certificate, no installation. A bootstrap
+//! connection solves initial contact only; the client then asks it which
+//! peers are closest to an address and opens its *own* WebRTC connections to
+//! those nodes, fetching and storing directly against the responsible peers
+//! exactly like the native client. Load spreads across the network.
+//!
+//! All security properties live here: every node's DTLS certificate is
+//! pinned by fingerprint, its identity is verified post-quantum (ML-DSA-65 +
+//! PeerId pinning) inside the mandatory PQC tunnel (ML-KEM-768 +
 //! ChaCha20-Poly1305), and every chunk is verified against its BLAKE3
 //! content address before use.
 //!
 //! ```js
-//! const client = await WasmClient.connect("127.0.0.1", 20123, certHashHex, peerIdHex);
-//! const bytes = await client.download(addressHex);   // verified + decrypted
+//! const client = await WasmClient.connect(bootIp, bootPort, bootCertHash, bootPeerId);
+//! const bytes  = await client.download(addressHex);   // verified + decrypted
 //! ```
 
+mod conn;
+mod discovery;
 mod framing;
 pub mod payment;
 mod protocol;
@@ -21,162 +29,154 @@ mod sdp;
 mod tunnel;
 mod webrtc;
 
-use protocol::{ChunkGetRequest, ChunkGetResponse, ChunkMessage, ChunkMessageBody};
+use conn::NodeConnection;
+use discovery::PeerConnectInfo;
 use retrieval::Retrieval;
-use tunnel::{ClientHandshake, SessionCipher, MAX_SEQ};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-use webrtc::Transport;
 
-/// A connected, authenticated client session.
+/// A connected client: one bootstrap session plus a pool of direct
+/// connections to the peers discovery hands out.
 #[wasm_bindgen]
 pub struct WasmClient {
-    transport: Transport,
-    cipher: SessionCipher,
-    peer_id: [u8; 32],
-    next_seq: std::cell::Cell<u32>,
+    bootstrap: Rc<NodeConnection>,
+    /// Direct connections keyed by peer id, opened on demand.
+    pool: RefCell<HashMap<[u8; 32], Rc<NodeConnection>>>,
 }
 
 #[wasm_bindgen]
 impl WasmClient {
-    /// Connect to a node and establish the authenticated PQC tunnel.
+    /// Connect to a bootstrap node and establish the authenticated PQC
+    /// tunnel.
     ///
-    /// * `ip`, `port` — the node's WebRTC listener address.
-    /// * `cert_hash_hex` — SHA-256 fingerprint of the node's DTLS
-    ///   certificate (64 hex chars, from the devnet manifest).
-    /// * `peer_id_hex` — expected node identity (`BLAKE3` of its ML-DSA-65
-    ///   public key); pass an empty string to skip pinning (discouraged).
+    /// * `ip`, `port` — the bootstrap node's WebRTC listener address.
+    /// * `cert_hash_hex` — SHA-256 fingerprint of its DTLS certificate.
+    /// * `peer_id_hex` — expected identity (`BLAKE3` of its ML-DSA-65 public
+    ///   key); empty string skips pinning (discouraged).
     pub async fn connect(
         ip: String,
         port: u16,
         cert_hash_hex: String,
         peer_id_hex: String,
     ) -> Result<WasmClient, JsValue> {
-        let transport = Transport::connect(&ip, port, &cert_hash_hex)
+        let expected = parse_opt_peer_id(&peer_id_hex).map_err(js_err)?;
+        let bootstrap = NodeConnection::connect(&ip, port, &cert_hash_hex, expected.as_ref())
             .await
             .map_err(js_err)?;
-
-        // PQC handshake: first frame out is the ClientHello, first frame in
-        // is the ServerAccept.
-        let (handshake, hello) = ClientHandshake::start().map_err(js_err)?;
-        transport.send_frame(&hello).map_err(js_err)?;
-        let accept = transport.recv_frame().await.map_err(js_err)?;
-
-        let expected_peer_id: Option<[u8; 32]> = if peer_id_hex.is_empty() {
-            None
-        } else {
-            let bytes = hex::decode(&peer_id_hex)
-                .map_err(|e| js_err(format!("peer_id_hex: {e}")))?;
-            Some(
-                bytes
-                    .try_into()
-                    .map_err(|_| js_err("peer_id_hex must be 32 bytes"))?,
-            )
-        };
-        let established = handshake
-            .finish(&accept, expected_peer_id.as_ref())
-            .map_err(js_err)?;
-
+        let bootstrap = Rc::new(bootstrap);
+        let mut pool = HashMap::new();
+        pool.insert(bootstrap.peer_id(), Rc::clone(&bootstrap));
         Ok(WasmClient {
-            transport,
-            cipher: established.cipher,
-            peer_id: established.peer_id,
-            next_seq: std::cell::Cell::new(1),
+            bootstrap,
+            pool: RefCell::new(pool),
         })
     }
 
-    /// The connected node's PeerId (hex).
+    /// The bootstrap node's `PeerId` (hex).
     #[wasm_bindgen(getter)]
     pub fn peer_id(&self) -> String {
-        hex::encode(self.peer_id)
+        hex::encode(self.bootstrap.peer_id())
     }
 
-    /// Fetch one raw chunk by its address (64 hex chars), verified against
-    /// the address before returning.
-    pub async fn fetch_chunk(&self, address_hex: String) -> Result<Vec<u8>, JsValue> {
-        let address = parse_address(&address_hex).map_err(js_err)?;
-        let content = self.get_verified(address).await.map_err(js_err)?;
-        Ok(content)
+    /// Number of open node connections (bootstrap + direct peers).
+    #[wasm_bindgen(getter)]
+    pub fn connection_count(&self) -> usize {
+        self.pool.borrow().len()
     }
 
     /// Download, verify, and decrypt a public file by its data-map address
-    /// (64 hex chars). Returns the plaintext bytes.
+    /// (64 hex chars), fetching each chunk directly from a responsible peer.
     pub async fn download(&self, address_hex: String) -> Result<Vec<u8>, JsValue> {
         let address = parse_address(&address_hex).map_err(js_err)?;
 
-        // 1. The address holds the (possibly shrunk) data map chunk.
-        let map_bytes = self.get_verified(address).await.map_err(js_err)?;
+        let map_bytes = self.get_direct(address).await.map_err(js_err)?;
         let mut retrieval = Retrieval::begin(address, &map_bytes).map_err(js_err)?;
 
-        // 2. Fetch required chunks until complete (resolving shrunk maps).
         while !retrieval.is_complete() {
             for chunk_address in retrieval.required_addresses() {
-                let bytes = self.get_verified(chunk_address).await.map_err(js_err)?;
+                let bytes = self.get_direct(chunk_address).await.map_err(js_err)?;
                 retrieval.supply(chunk_address, &bytes).map_err(js_err)?;
             }
             retrieval.advance().map_err(js_err)?;
         }
-
-        // 3. Decrypt and reassemble.
         retrieval.finish().map_err(js_err)
     }
 
-    /// One encrypted GET round-trip; verifies the content against the
-    /// requested address before returning.
-    async fn get_verified(&self, address: [u8; 32]) -> Result<Vec<u8>, String> {
-        let seq = self.next_seq.get();
-        if seq >= MAX_SEQ {
-            return Err("session sequence space exhausted; reconnect".into());
-        }
-        self.next_seq.set(seq + 1);
+    /// Fetch one raw chunk by address (64 hex), directly from a responsible
+    /// peer, verified against its address.
+    pub async fn fetch_chunk(&self, address_hex: String) -> Result<Vec<u8>, JsValue> {
+        let address = parse_address(&address_hex).map_err(js_err)?;
+        self.get_direct(address).await.map_err(js_err)
+    }
 
-        let request = ChunkMessage {
-            request_id: u64::from(seq),
-            body: ChunkMessageBody::GetRequest(ChunkGetRequest { address }),
-        };
-        // Tunnel plaintext leads with the protocol tag (0x01 = ChunkMessage).
-        let mut tagged = vec![0x01u8];
-        tagged.extend(request.encode()?);
-        let envelope = self.cipher.seal_request(seq, &tagged)?;
-        self.transport.send_frame(&envelope)?;
+    /// Fetch a chunk from the peers responsible for its address: discover
+    /// the close group via the bootstrap connection, then try each peer over
+    /// its own direct connection.
+    async fn get_direct(&self, address: [u8; 32]) -> Result<Vec<u8>, String> {
+        let peers = self.bootstrap.closest_peers(address).await?;
+        if peers.is_empty() {
+            return Err("discovery returned no peers".into());
+        }
+        let mut last_err = String::new();
+        for peer in &peers {
+            let conn = match self.connection_for(peer).await {
+                Ok(c) => c,
+                Err(e) => {
+                    last_err = e;
+                    continue;
+                }
+            };
+            match conn.get_verified(address).await {
+                Ok(content) => return Ok(content),
+                Err(e) => last_err = e,
+            }
+        }
+        Err(format!(
+            "no responsible peer served {}: {last_err}",
+            hex::encode(address)
+        ))
+    }
 
-        // Requests are issued sequentially, so the next response frame
-        // answers this request; the seq check guards against desync.
-        let frame = self.transport.recv_frame().await?;
-        let (resp_seq, plaintext) = self.cipher.open_response(&frame)?;
-        if resp_seq != seq {
-            return Err(format!("response seq {resp_seq} does not match request {seq}"));
+    /// Get or open a direct connection to a discovered peer.
+    async fn connection_for(&self, peer: &PeerConnectInfo) -> Result<Rc<NodeConnection>, String> {
+        if let Some(conn) = self.pool.borrow().get(&peer.peer_id) {
+            return Ok(Rc::clone(conn));
         }
-        if plaintext.first() != Some(&0x01u8) {
-            return Err("unexpected response protocol tag".into());
-        }
-        let response = ChunkMessage::decode(&plaintext[1..])?;
-        match response.body {
-            ChunkMessageBody::GetResponse(ChunkGetResponse::Success {
-                address: resp_address,
-                content,
-            }) => {
-                // The trust boundary: content must hash to the address WE
-                // requested.
-                if resp_address != address {
-                    return Err("response address mismatch".into());
-                }
-                let computed: [u8; 32] = *blake3::hash(&content).as_bytes();
-                if computed != address {
-                    return Err(format!(
-                        "chunk {} failed BLAKE3 verification",
-                        hex::encode(address)
-                    ));
-                }
-                Ok(content)
-            }
-            ChunkMessageBody::GetResponse(ChunkGetResponse::NotFound { .. }) => {
-                Err(format!("not found: {}", hex::encode(address)))
-            }
-            ChunkMessageBody::GetResponse(ChunkGetResponse::Error(e)) => {
-                Err(format!("node error: {e}"))
-            }
-            _ => Err("unexpected response type".into()),
-        }
+        let conn = NodeConnection::connect(
+            &peer.ip,
+            peer.port,
+            &hex::encode(peer.cert_hash),
+            Some(&peer.peer_id),
+        )
+        .await?;
+        let conn = Rc::new(conn);
+        self.pool
+            .borrow_mut()
+            .insert(peer.peer_id, Rc::clone(&conn));
+        Ok(conn)
+    }
+
+    /// The peers currently responsible for an address, as JSON
+    /// (`[{peer_id, ip, port, cert_hash}]`, hex-encoded) — for diagnostics
+    /// and the upload flow driven from JS.
+    pub async fn closest_peers_json(&self, address_hex: String) -> Result<String, JsValue> {
+        let address = parse_address(&address_hex).map_err(js_err)?;
+        let peers = self.bootstrap.closest_peers(address).await.map_err(js_err)?;
+        let items: Vec<String> = peers
+            .iter()
+            .map(|p| {
+                format!(
+                    r#"{{"peer_id":"{}","ip":"{}","port":{},"cert_hash":"{}"}}"#,
+                    hex::encode(p.peer_id),
+                    p.ip,
+                    p.port,
+                    hex::encode(p.cert_hash)
+                )
+            })
+            .collect();
+        Ok(format!("[{}]", items.join(",")))
     }
 }
 
@@ -187,11 +187,22 @@ pub fn content_address(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn parse_address(text: &str) -> Result<[u8; 32], String> {
-    let text = text.trim();
-    let bytes = hex::decode(text).map_err(|e| format!("address is not hex: {e}"))?;
+    let bytes = hex::decode(text.trim()).map_err(|e| format!("address is not hex: {e}"))?;
     bytes
         .try_into()
         .map_err(|_| "address must be 64 hex characters".to_string())
+}
+
+fn parse_opt_peer_id(hex_str: &str) -> Result<Option<[u8; 32]>, String> {
+    if hex_str.is_empty() {
+        return Ok(None);
+    }
+    let bytes = hex::decode(hex_str).map_err(|e| format!("peer_id_hex: {e}"))?;
+    Ok(Some(
+        bytes
+            .try_into()
+            .map_err(|_| "peer_id_hex must be 32 bytes".to_string())?,
+    ))
 }
 
 fn js_err(e: impl std::fmt::Display) -> JsValue {
