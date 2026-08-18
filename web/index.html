@@ -85,10 +85,12 @@ $("download").onclick = async () => {
     log(`PQC-Tunnel steht. Node-PeerId: ${client.peer_id}`, "ok");
 
     const address = $("address").value.trim();
-    log(`Lade ${address} …`);
+    const peers = JSON.parse(await client.closest_peers_json(address));
+    log(`Discovery: ${peers.length} zuständige Nodes (Ports ${peers.map(p => p.port).join(", ")})`);
+    log(`Lade ${address} direkt von den zuständigen Peers …`);
     const bytes = await client.download(address);
     const secs = ((performance.now() - t0) / 1000).toFixed(2);
-    log(`Fertig: ${bytes.length} Bytes in ${secs}s — verifiziert & entschlüsselt.`, "ok");
+    log(`Fertig: ${bytes.length} Bytes in ${secs}s über ${client.connection_count} Direktverbindungen — verifiziert & entschlüsselt.`, "ok");
 
     const blob = new Blob([bytes], { type: "application/octet-stream" });
     const a = document.createElement("a");
