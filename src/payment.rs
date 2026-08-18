@@ -185,6 +185,36 @@ pub fn bytes_for_sig(quote: &Quote) -> Vec<u8> {
     bytes
 }
 
+/// Verify a quote's ML-DSA-65 signature.
+///
+/// Checks `q.signature` (fips204 ml-dsa-65, empty context) over
+/// [`bytes_for_sig`] using `q.pub_key`. Returns `false` if the key or
+/// signature is the wrong length or fails to parse — this only proves the
+/// key that produced the quote signed it; binding that key to the expected
+/// node identity (`blake3(q.pub_key) == expected_peer_id`) is the caller's
+/// responsibility.
+///
+/// fips204 verify API: `ml_dsa_65::PublicKey` implements `SerDes`
+/// (`try_from_bytes([u8; PK_LEN=1952])`) and `Verifier`
+/// (`verify(msg, sig: &[u8; SIG_LEN=3309], ctx) -> bool`), so the key and
+/// signature must be exactly those fixed sizes.
+#[must_use]
+pub fn verify_quote(quote: &Quote) -> bool {
+    use fips204::ml_dsa_65::{PublicKey, PK_LEN, SIG_LEN};
+    use fips204::traits::{SerDes, Verifier};
+
+    let Ok(pk_bytes) = <[u8; PK_LEN]>::try_from(quote.pub_key.as_slice()) else {
+        return false;
+    };
+    let Ok(sig) = <[u8; SIG_LEN]>::try_from(quote.signature.as_slice()) else {
+        return false;
+    };
+    let Ok(pk) = PublicKey::try_from_bytes(pk_bytes) else {
+        return false;
+    };
+    pk.verify(&bytes_for_sig(quote), &sig, &[])
+}
+
 /// The quote hash — mirror of `PaymentQuote::hash()`:
 /// `keccak256(bytes_for_sig ‖ pub_key ‖ signature)`.
 ///

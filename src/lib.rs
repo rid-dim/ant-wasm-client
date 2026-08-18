@@ -21,6 +21,7 @@
 
 mod conn;
 mod discovery;
+mod evm;
 mod framing;
 pub mod payment;
 mod protocol;
@@ -31,11 +32,23 @@ mod webrtc;
 
 use conn::NodeConnection;
 use discovery::PeerConnectInfo;
+use protocol::{
+    ChunkMessage, ChunkMessageBody, ChunkPutRequest, ChunkPutResponse, ChunkQuoteRequest,
+    ChunkQuoteResponse,
+};
 use retrieval::Retrieval;
+use self_encryption::bytes::Bytes;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
+
+/// Close-group size — a single-node payment needs exactly this many quotes.
+const CLOSE_GROUP_SIZE: usize = 7;
+/// A quorum of the close group (`CLOSE_GROUP_SIZE / 2 + 1`).
+const CLOSE_GROUP_MAJORITY: usize = 4;
+/// The data-type tag for a plain chunk (`DATA_TYPE_CHUNK`).
+const DATA_TYPE_CHUNK: u32 = 0;
 
 /// A connected client: one bootstrap session plus a pool of direct
 /// connections to the peers discovery hands out.
@@ -158,6 +171,65 @@ impl WasmClient {
         Ok(conn)
     }
 
+    /// Encrypt, pay for, and store `data` on the network, returning the
+    /// public file address (the data-map chunk address, 64 hex chars).
+    ///
+    /// Payment is MetaMask-free: `pay` is an async JS function
+    /// `(to_hex, calldata_hex) => Promise<txHashHex>` that submits the
+    /// prepared calldata with whatever wallet the page holds and resolves to
+    /// the 32-byte transaction hash (hex). This client only *builds* the
+    /// ERC-20 `approve` and `payForQuotes` calldata — it never signs or
+    /// broadcasts.
+    ///
+    /// * `token_addr_hex` — the payment ERC-20 token contract (20 bytes hex).
+    /// * `vault_addr_hex` — the payment-vault contract that `payForQuotes` is
+    ///   sent to and that `approve` authorizes as spender.
+    pub async fn upload(
+        &self,
+        data: Vec<u8>,
+        token_addr_hex: String,
+        vault_addr_hex: String,
+        pay: js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let token = parse_eth_address(&token_addr_hex).map_err(js_err)?;
+        let vault = parse_eth_address(&vault_addr_hex).map_err(js_err)?;
+
+        // 1. Self-encrypt. v1 only supports flat (non-shrunk) data maps.
+        let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data))
+            .map_err(|e| js_err(format!("self-encryption failed: {e}")))?;
+        if data_map.is_child() {
+            return Err(js_err(
+                "large files (shrunk data maps) not yet supported".to_string(),
+            ));
+        }
+
+        // The data-map chunk: rmp-serialized map, addressed by its BLAKE3.
+        let map_bytes = rmp_serde::to_vec(&data_map)
+            .map_err(|e| js_err(format!("data map serialize failed: {e}")))?;
+        let map_address: [u8; 32] = *blake3::hash(&map_bytes).as_bytes();
+
+        // 2. Ordered store list: every content chunk, then the data-map chunk.
+        let mut items: Vec<([u8; 32], Vec<u8>)> = chunks
+            .iter()
+            .map(|c| {
+                let content = c.content.to_vec();
+                let address: [u8; 32] = *blake3::hash(&content).as_bytes();
+                (address, content)
+            })
+            .collect();
+        items.push((map_address, map_bytes));
+
+        // 3. Store each item against its responsible close group.
+        for (address, content) in &items {
+            self.store_one(*address, content, token, vault, &pay)
+                .await
+                .map_err(js_err)?;
+        }
+
+        // 4. The data-map address is the public file address.
+        Ok(hex::encode(map_address))
+    }
+
     /// The peers currently responsible for an address, as JSON
     /// (`[{peer_id, ip, port, cert_hash}]`, hex-encoded) — for diagnostics
     /// and the upload flow driven from JS.
@@ -178,6 +250,243 @@ impl WasmClient {
             .collect();
         Ok(format!("[{}]", items.join(",")))
     }
+}
+
+/// One responsible peer that returned a verified quote for a chunk.
+struct QuotedPeer {
+    peer_id: [u8; 32],
+    conn: Rc<NodeConnection>,
+    quote: payment::Quote,
+    commitment: Option<Vec<u8>>,
+}
+
+impl WasmClient {
+    /// Store one chunk: quote, pay, and PUT against its close group.
+    async fn store_one(
+        &self,
+        address: [u8; 32],
+        content: &[u8],
+        token: [u8; 20],
+        vault: [u8; 20],
+        pay: &js_sys::Function,
+    ) -> Result<(), String> {
+        let peers = self.bootstrap.closest_peers(address).await?;
+        if peers.len() < CLOSE_GROUP_SIZE {
+            return Err(format!(
+                "need at least {CLOSE_GROUP_SIZE} responsible peers for {}, discovery returned {}",
+                hex::encode(address),
+                peers.len()
+            ));
+        }
+
+        // Collect verified quotes from the close group, closest first.
+        let mut quoted: Vec<QuotedPeer> = Vec::with_capacity(CLOSE_GROUP_SIZE);
+        let mut already_stored_count = 0usize;
+        for peer in &peers {
+            if quoted.len() >= CLOSE_GROUP_SIZE {
+                break;
+            }
+            let conn = match self.connection_for(peer).await {
+                Ok(c) => c,
+                Err(_) => continue, // unreachable peer, try the next
+            };
+            let (quote_bytes, already_stored, commitment) =
+                match request_quote(&conn, address, content.len()).await {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+            if already_stored {
+                already_stored_count += 1;
+                // Majority reports the chunk already present: nothing to pay
+                // or store.
+                if already_stored_count >= CLOSE_GROUP_MAJORITY {
+                    return Ok(());
+                }
+            }
+
+            // Verify: parseable, signed, for THIS address, by THIS peer.
+            let quote = match payment::parse_quote(&quote_bytes) {
+                Ok(q) => q,
+                Err(_) => continue,
+            };
+            if quote.content != address {
+                continue;
+            }
+            if blake3::hash(&quote.pub_key).as_bytes() != &peer.peer_id {
+                continue;
+            }
+            if !payment::verify_quote(&quote) {
+                continue;
+            }
+            quoted.push(QuotedPeer {
+                peer_id: peer.peer_id,
+                conn,
+                quote,
+                commitment,
+            });
+        }
+
+        if quoted.len() < CLOSE_GROUP_SIZE {
+            return Err(format!(
+                "only {} of {CLOSE_GROUP_SIZE} peers gave a valid quote for {}",
+                quoted.len(),
+                hex::encode(address)
+            ));
+        }
+
+        // Compute the single-node payment split (order matches `quoted`).
+        let quotes: Vec<payment::Quote> = quoted.iter().map(|q| q.quote.clone()).collect();
+        let payments = evm::payment_split(&quotes)?;
+        let total = evm::total_amount(&payments);
+
+        // Pay: approve the vault to pull `total`, then payForQuotes.
+        let approve = evm::approve_calldata(vault, total);
+        call_pay(pay, &to_hex(&token), &hex_0x(&approve)).await?;
+
+        let pay_for_quotes = evm::pay_for_quotes_calldata(&payments);
+        let tx_hex = call_pay(pay, &to_hex(&vault), &hex_0x(&pay_for_quotes)).await?;
+        let tx_hash = parse_tx_hash(&tx_hex)?;
+
+        // Build the tagged single-node proof.
+        let peer_quotes: Vec<([u8; 32], payment::Quote)> = quoted
+            .iter()
+            .map(|q| (q.peer_id, q.quote.clone()))
+            .collect();
+        let sidecars: Vec<Vec<u8>> = quoted.iter().filter_map(|q| q.commitment.clone()).collect();
+        let proof_bytes = payment::serialize_single_node_proof(peer_quotes, tx_hash, sidecars)
+            .map_err(|e| format!("proof serialize failed: {e}"))?;
+
+        // PUT to each responsible peer; require a majority to accept.
+        let mut accepted = 0usize;
+        let mut last_err = String::new();
+        for peer in &quoted {
+            match put_chunk(&peer.conn, address, content, &proof_bytes).await {
+                Ok(true) => accepted += 1,
+                Ok(false) => {}
+                Err(e) => last_err = e,
+            }
+        }
+        if accepted < CLOSE_GROUP_MAJORITY {
+            return Err(format!(
+                "chunk {} accepted by only {accepted} of {CLOSE_GROUP_SIZE} peers: {last_err}",
+                hex::encode(address)
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Send a `ChunkQuoteRequest` and return `(quote_bytes, already_stored,
+/// commitment)` on success.
+async fn request_quote(
+    conn: &NodeConnection,
+    address: [u8; 32],
+    data_size: usize,
+) -> Result<(Vec<u8>, bool, Option<Vec<u8>>), String> {
+    let request = ChunkMessage {
+        request_id: 1,
+        body: ChunkMessageBody::QuoteRequest(ChunkQuoteRequest {
+            address,
+            data_size: data_size as u64,
+            data_type: DATA_TYPE_CHUNK,
+        }),
+    };
+    let response = conn.chunk_round_trip(&request).await?;
+    match response.body {
+        ChunkMessageBody::QuoteResponse(ChunkQuoteResponse::Success {
+            quote,
+            already_stored,
+            commitment,
+        }) => Ok((quote, already_stored, commitment)),
+        ChunkMessageBody::QuoteResponse(ChunkQuoteResponse::Error(e)) => {
+            Err(format!("quote error: {e}"))
+        }
+        _ => Err("unexpected response to quote request".into()),
+    }
+}
+
+/// Send a `ChunkPutRequest`; return `Ok(true)` if stored or already present.
+async fn put_chunk(
+    conn: &NodeConnection,
+    address: [u8; 32],
+    content: &[u8],
+    proof_bytes: &[u8],
+) -> Result<bool, String> {
+    let request = ChunkMessage {
+        request_id: 1,
+        body: ChunkMessageBody::PutRequest(ChunkPutRequest {
+            address,
+            content: content.to_vec(),
+            payment_proof: Some(proof_bytes.to_vec()),
+        }),
+    };
+    let response = conn.chunk_round_trip(&request).await?;
+    match response.body {
+        ChunkMessageBody::PutResponse(ChunkPutResponse::Success { .. })
+        | ChunkMessageBody::PutResponse(ChunkPutResponse::AlreadyExists { .. }) => Ok(true),
+        ChunkMessageBody::PutResponse(ChunkPutResponse::PaymentRequired { message }) => {
+            Err(format!("payment required: {message}"))
+        }
+        ChunkMessageBody::PutResponse(ChunkPutResponse::Error(e)) => Err(format!("put error: {e}")),
+        _ => Err("unexpected response to put request".into()),
+    }
+}
+
+/// Invoke the JS payment callback and await the resolved transaction hash hex.
+async fn call_pay(
+    pay: &js_sys::Function,
+    to_hex: &str,
+    calldata_hex: &str,
+) -> Result<String, String> {
+    let result = pay
+        .call2(
+            &JsValue::NULL,
+            &JsValue::from_str(to_hex),
+            &JsValue::from_str(calldata_hex),
+        )
+        .map_err(|e| format!("pay callback threw: {}", js_display(&e)))?;
+    // Accept both a Promise and a plain value.
+    let promise = js_sys::Promise::resolve(&result);
+    let resolved = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("pay callback rejected: {}", js_display(&e)))?;
+    resolved
+        .as_string()
+        .ok_or_else(|| "pay callback did not resolve to a string tx hash".to_string())
+}
+
+fn js_display(value: &JsValue) -> String {
+    value
+        .as_string()
+        .or_else(|| js_sys::JSON::stringify(value).ok().and_then(|s| s.as_string()))
+        .unwrap_or_else(|| "<non-string JS error>".to_string())
+}
+
+/// `0x`-prefixed hex of a 20-byte address.
+fn to_hex(addr: &[u8; 20]) -> String {
+    hex_0x(addr)
+}
+
+/// `0x`-prefixed lowercase hex of a byte slice.
+fn hex_0x(bytes: &[u8]) -> String {
+    format!("0x{}", hex::encode(bytes))
+}
+
+fn parse_eth_address(text: &str) -> Result<[u8; 20], String> {
+    let trimmed = text.trim().strip_prefix("0x").unwrap_or(text.trim());
+    let bytes = hex::decode(trimmed).map_err(|e| format!("address is not hex: {e}"))?;
+    bytes
+        .try_into()
+        .map_err(|_| "address must be 20 bytes (40 hex chars)".to_string())
+}
+
+fn parse_tx_hash(text: &str) -> Result<[u8; 32], String> {
+    let trimmed = text.trim().strip_prefix("0x").unwrap_or(text.trim());
+    let bytes = hex::decode(trimmed).map_err(|e| format!("tx hash is not hex: {e}"))?;
+    bytes
+        .try_into()
+        .map_err(|_| "tx hash must be 32 bytes (64 hex chars)".to_string())
 }
 
 /// BLAKE3 content address of a blob (matches the network's addressing).
