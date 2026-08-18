@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Autonomi WebRTC-Direct Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 760px;
+         margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem; }
+  label { display: block; margin-top: .5rem; font-size: .85rem; opacity: .8; }
+  input { width: 100%; box-sizing: border-box; padding: .45rem;
+          font-family: ui-monospace, monospace; font-size: .85rem; }
+  button { padding: .5rem 1.2rem; font-size: 1rem; cursor: pointer; margin-top: .8rem; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
+         font-size: .8rem; background: #8881; border-radius: 8px;
+         padding: .8rem; min-height: 8rem; }
+  .ok { color: #2a2; } .err { color: #d33; }
+</style>
+</head>
+<body>
+<h1>Autonomi über WebRTC-Direct — ohne Installation</h1>
+<p>Diese Seite verbindet sich direkt mit einem ant-node (PQC-Tunnel:
+ML-KEM-768 + ML-DSA-65), lädt eine Datei, verifiziert jeden Chunk gegen seine
+BLAKE3-Adresse und entschlüsselt sie im Browser.</p>
+
+<fieldset>
+  <legend>Verbindung</legend>
+  <label>Devnet-Manifest-URL (füllt die Felder automatisch)</label>
+  <input id="manifest" value="http://127.0.0.1:8088/api/devnet-manifest.json">
+  <button id="load-manifest">Manifest laden</button>
+  <label>Node (ip:port)</label>
+  <input id="node-addr" placeholder="127.0.0.1:20123">
+  <label>Zertifikat-Hash (SHA-256, hex)</label>
+  <input id="cert-hash" placeholder="64 hex chars">
+  <label>PeerId (hex, für PQ-Identitäts-Pinning)</label>
+  <input id="peer-id" placeholder="64 hex chars">
+</fieldset>
+
+<fieldset>
+  <legend>Download</legend>
+  <label>Datei-Adresse (public upload, 64 hex)</label>
+  <input id="address" placeholder="Adresse aus `ant file upload --public`">
+  <button id="download">Verbinden &amp; herunterladen</button>
+</fieldset>
+
+<div id="log">bereit.</div>
+
+<script type="module">
+import init, { WasmClient } from "./pkg/ant_wasm_client.js";
+
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls) => {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  $("log").appendChild(line);
+};
+
+await init();
+log("WASM geladen.");
+
+$("load-manifest").onclick = async () => {
+  try {
+    const res = await fetch($("manifest").value);
+    const m = await res.json();
+    if (!m.webrtc) throw new Error("Manifest hat keine webrtc-Sektion (Devnet mit --webrtc-port starten)");
+    $("node-addr").value = m.webrtc.address;
+    $("cert-hash").value = m.webrtc.cert_hash;
+    $("peer-id").value = m.webrtc.peer_id;
+    log(`Manifest geladen: Node ${m.webrtc.address}`, "ok");
+  } catch (e) {
+    log(`Manifest-Fehler: ${e}`, "err");
+  }
+};
+
+$("download").onclick = async () => {
+  try {
+    const [ip, port] = $("node-addr").value.trim().split(":");
+    const t0 = performance.now();
+    log(`Verbinde zu ${ip}:${port} …`);
+    const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
+    log(`PQC-Tunnel steht. Node-PeerId: ${client.peer_id}`, "ok");
+
+    const address = $("address").value.trim();
+    log(`Lade ${address} …`);
+    const bytes = await client.download(address);
+    const secs = ((performance.now() - t0) / 1000).toFixed(2);
+    log(`Fertig: ${bytes.length} Bytes in ${secs}s — verifiziert & entschlüsselt.`, "ok");
+
+    const blob = new Blob([bytes], { type: "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `autonomi-${address.slice(0, 8)}.bin`;
+    a.textContent = `💾 Datei speichern (${bytes.length} Bytes)`;
+    $("log").appendChild(a);
+    window.__downloadedBytes = bytes;   // for automated verification
+    window.__downloadDone = true;
+  } catch (e) {
+    log(`Fehler: ${e}`, "err");
+    window.__downloadError = String(e);
+  }
+};
+</script>
+</body>
+</html>

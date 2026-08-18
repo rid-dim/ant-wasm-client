@@ -1,0 +1,63 @@
+[package]
+name = "ant-wasm-client"
+version = "0.1.0"
+edition = "2021"
+description = "Browser WASM client for the Autonomi WebRTC-Direct lane (ADR-0010): connect, PQC tunnel, verified download"
+license = "MIT OR Apache-2.0"
+
+# Deliberately its own workspace: wasm builds must not resolve the native
+# node/network stack.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pinned to the installed wasm-bindgen-cli version.
+wasm-bindgen = "=0.2.126"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+futures = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = [
+    "Window",
+    "RtcPeerConnection",
+    "RtcConfiguration",
+    "RtcSessionDescription",
+    "RtcSessionDescriptionInit",
+    "RtcSdpType",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelEvent",
+    "RtcDataChannelState",
+    "RtcDataChannelType",
+    "RtcPeerConnectionState",
+    "MessageEvent",
+    "Event",
+    "console",
+] }
+
+# Content verification + self-encryption (proven wasm-viable in the PoC).
+self_encryption = "0.36"
+rmp-serde = "1"
+blake3 = "1"
+
+# Wire protocol (postcard ChunkMessage mirror) + PQC tunnel.
+postcard = { version = "1.1.3", features = ["use-std"] }
+serde = { version = "1", features = ["derive"] }
+chacha20poly1305 = "0.10"
+fips203 = "0.4"
+fips204 = "0.4"
+
+hex = "0.4"
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+rand = "0.8"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

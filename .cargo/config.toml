@@ -1,0 +1,6 @@
+# self_encryption reads MAX_CHUNK_SIZE via option_env! at COMPILE time — a
+# stray shell export would silently poison the build (PoC FINDINGS §7).
+# Pin it to the network's value (matches the PoC, verified against the live
+# network).
+[env]
+MAX_CHUNK_SIZE = { value = "4190208", force = true }
