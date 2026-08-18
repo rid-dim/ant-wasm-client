@@ -132,7 +132,10 @@ impl WasmClient {
             request_id: u64::from(seq),
             body: ChunkMessageBody::GetRequest(ChunkGetRequest { address }),
         };
-        let envelope = self.cipher.seal_request(seq, &request.encode()?)?;
+        // Tunnel plaintext leads with the protocol tag (0x01 = ChunkMessage).
+        let mut tagged = vec![0x01u8];
+        tagged.extend(request.encode()?);
+        let envelope = self.cipher.seal_request(seq, &tagged)?;
         self.transport.send_frame(&envelope)?;
 
         // Requests are issued sequentially, so the next response frame
@@ -142,7 +145,10 @@ impl WasmClient {
         if resp_seq != seq {
             return Err(format!("response seq {resp_seq} does not match request {seq}"));
         }
-        let response = ChunkMessage::decode(&plaintext)?;
+        if plaintext.first() != Some(&0x01u8) {
+            return Err("unexpected response protocol tag".into());
+        }
+        let response = ChunkMessage::decode(&plaintext[1..])?;
         match response.body {
             ChunkMessageBody::GetResponse(ChunkGetResponse::Success {
                 address: resp_address,
