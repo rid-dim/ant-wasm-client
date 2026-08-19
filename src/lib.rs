@@ -111,9 +111,15 @@ impl WasmClient {
         let mut retrieval = Retrieval::begin(address, &map_bytes).map_err(js_err)?;
 
         while !retrieval.is_complete() {
-            for chunk_address in retrieval.required_addresses() {
-                let bytes = self.get_direct(chunk_address).await.map_err(js_err)?;
-                retrieval.supply(chunk_address, &bytes).map_err(js_err)?;
+            let addrs = retrieval.required_addresses();
+            // Fetch this round's chunks concurrently: each goes to its own
+            // responsible peer over its own connection, and the per-connection
+            // lock keeps any two that share a peer from racing.
+            let fetched =
+                futures::future::join_all(addrs.iter().map(|a| self.get_direct(*a))).await;
+            for (addr, result) in addrs.iter().zip(fetched) {
+                let bytes = result.map_err(js_err)?;
+                retrieval.supply(*addr, &bytes).map_err(js_err)?;
             }
             retrieval.advance().map_err(js_err)?;
         }

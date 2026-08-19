@@ -9,14 +9,23 @@ use crate::discovery::{DiscoveryBody, DiscoveryMessage, PROTO_CHUNK, PROTO_DISCO
 use crate::protocol::{ChunkGetRequest, ChunkGetResponse, ChunkMessage, ChunkMessageBody};
 use crate::tunnel::{ClientHandshake, SessionCipher, MAX_SEQ};
 use crate::webrtc::Transport;
+use futures::lock::Mutex;
 use std::cell::Cell;
 
 /// An authenticated session with one node.
+///
+/// A connection carries one request at a time: each round-trip sends a
+/// sequence-numbered request and awaits the matching response frame, so two
+/// overlapping round-trips on the same connection would mismatch. The
+/// `request_lock` serialises callers, which lets higher layers fan out
+/// requests across *different* connections concurrently (parallel download)
+/// while requests to the *same* connection queue safely.
 pub struct NodeConnection {
     transport: Transport,
     cipher: SessionCipher,
     peer_id: [u8; 32],
     next_seq: Cell<u32>,
+    request_lock: Mutex<()>,
 }
 
 impl NodeConnection {
@@ -40,6 +49,7 @@ impl NodeConnection {
             cipher: established.cipher,
             peer_id: established.peer_id,
             next_seq: Cell::new(1),
+            request_lock: Mutex::new(()),
         })
     }
 
@@ -60,6 +70,10 @@ impl NodeConnection {
     /// Send one tagged request plaintext and return the response plaintext
     /// (tag stripped), verifying the sequence and tag.
     async fn round_trip(&self, tag: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
+        // Hold the request lock for the whole send→recv cycle so overlapping
+        // callers on this connection queue instead of racing on the response
+        // frame / sequence number.
+        let _guard = self.request_lock.lock().await;
         let seq = self.next_seq()?;
         let mut tagged = Vec::with_capacity(1 + payload.len());
         tagged.push(tag);
