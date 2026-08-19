@@ -50,11 +50,16 @@ BLAKE3-Adresse und entschlüsselt sie im Browser.</p>
   <legend>Upload</legend>
   <label>Zahlungsweg</label>
   <select id="pay-method">
-    <option value="auto">MetaMask, wenn vorhanden — sonst Anvil-Devnet-Account</option>
-    <option value="anvil">Immer Anvil-Devnet-Account (kein MetaMask)</option>
+    <option value="anvil">Anvil-Devnet-Account (kein Klick nötig)</option>
+    <option value="auto">MetaMask, wenn vorhanden — sonst Anvil</option>
     <option value="metamask">Immer MetaMask</option>
   </select>
-  <button id="connect-wallet" type="button">MetaMask verbinden &amp; Guthaben zeigen</button>
+  <button id="connect-wallet" type="button">Guthaben zeigen</button>
+  <p style="font-size:.75rem;opacity:.7;margin:.3rem 0 0">
+    MetaMask-Test: Anvil-Konto <code>0xac0974…f2ff80</code> in MetaMask
+    importieren; die Seite fügt die Devnet-Chain automatisch hinzu. Ohne
+    MetaMask läuft alles über den Anvil-Account des Manifests.
+  </p>
   <div id="balances" style="font-size:.8rem;opacity:.85;margin-top:.4rem"></div>
   <label>Datei</label>
   <input id="upload-file" type="file">
