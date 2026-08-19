@@ -1,0 +1,36 @@
+{
+  "_schema": {
+    "_": "Optional file, fetched as ./demo-catalogue.json next to index.html. Copy this file, replace the addresses with the ones the upload returned, drop the underscore keys. If the file is absent (404) the page simply shows no gallery.",
+    "items": "array of gallery entries, rendered in order, one card each",
+    "items[].title": "card heading (string, required)",
+    "items[].address": "public file address, 64 hex chars — the data-map chunk address returned by `ant file upload --public` or by this page's upload (required)",
+    "items[].type": "MIME type: image/* renders as <img>, audio/* as <audio controls>, anything else as a save link (optional, defaults to application/octet-stream)",
+    "items[].filename": "file name suggested by the save link (optional)"
+  },
+  "items": [
+    {
+      "title": "Beg, Blag & Steal",
+      "address": "0000000000000000000000000000000000000000000000000000000000000000",
+      "type": "audio/mpeg",
+      "filename": "BegBlag.mp3"
+    },
+    {
+      "title": "Earthrise",
+      "address": "1111111111111111111111111111111111111111111111111111111111111111",
+      "type": "image/jpeg",
+      "filename": "earthrise.jpg"
+    },
+    {
+      "title": "Pillars of Creation",
+      "address": "2222222222222222222222222222222222222222222222222222222222222222",
+      "type": "image/jpeg",
+      "filename": "pillars_of_creation.jpg"
+    },
+    {
+      "title": "Architecture notes (PDF)",
+      "address": "3333333333333333333333333333333333333333333333333333333333333333",
+      "type": "application/pdf",
+      "filename": "architecture.pdf"
+    }
+  ]
+}

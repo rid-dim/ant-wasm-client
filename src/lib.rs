@@ -38,7 +38,7 @@ use protocol::{
 };
 use retrieval::Retrieval;
 use self_encryption::bytes::Bytes;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -60,6 +60,9 @@ pub struct WasmClient {
     bootstrap: Rc<NodeConnection>,
     /// Direct connections keyed by peer id, opened on demand.
     pool: RefCell<HashMap<[u8; 32], Rc<NodeConnection>>>,
+    /// Chunks the last `download` pulled off the network (data map +
+    /// content chunks) — demo/progress statistics only.
+    chunks_fetched: Cell<usize>,
 }
 
 #[wasm_bindgen]
@@ -87,6 +90,7 @@ impl WasmClient {
         Ok(WasmClient {
             bootstrap,
             pool: RefCell::new(pool),
+            chunks_fetched: Cell::new(0),
         })
     }
 
@@ -102,12 +106,22 @@ impl WasmClient {
         self.pool.borrow().len()
     }
 
+    /// Chunks the last `download` fetched over the network — the data map
+    /// plus every content (and wrapper) chunk. Statistics for the UI; it
+    /// says nothing about verification, which `download` enforces anyway.
+    #[wasm_bindgen(getter)]
+    pub fn chunk_count(&self) -> usize {
+        self.chunks_fetched.get()
+    }
+
     /// Download, verify, and decrypt a public file by its data-map address
     /// (64 hex chars), fetching each chunk directly from a responsible peer.
     pub async fn download(&self, address_hex: String) -> Result<Vec<u8>, JsValue> {
         let address = parse_address(&address_hex).map_err(js_err)?;
 
+        self.chunks_fetched.set(0);
         let map_bytes = self.get_direct(address).await.map_err(js_err)?;
+        self.chunks_fetched.set(self.chunks_fetched.get() + 1);
         let mut retrieval = Retrieval::begin(address, &map_bytes).map_err(js_err)?;
 
         while !retrieval.is_complete() {
@@ -120,6 +134,7 @@ impl WasmClient {
             for (addr, result) in addrs.iter().zip(fetched) {
                 let bytes = result.map_err(js_err)?;
                 retrieval.supply(*addr, &bytes).map_err(js_err)?;
+                self.chunks_fetched.set(self.chunks_fetched.get() + 1);
             }
             retrieval.advance().map_err(js_err)?;
         }

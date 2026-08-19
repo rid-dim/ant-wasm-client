@@ -1,3 +1,6 @@
 target/
 web/pkg/
 web/devnet-manifest.json
+web/demo-catalogue.json
+web/deploy-manifest.json
+web/deploy-catalogue.json

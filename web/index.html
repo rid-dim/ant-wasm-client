@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Autonomi WebRTC-Direct Demo</title>
+<title>Autonomi WebRTC Browser Demo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { color-scheme: light dark; }
+  /* --net is the one accent reserved for content that arrived over the
+     network — never used for ordinary page furniture. */
+  :root { color-scheme: light dark; --net: #6d3bf5; --net-soft: #6d3bf514; }
+  @media (prefers-color-scheme: dark) { :root { --net: #a78bfa; --net-soft: #a78bfa1c; } }
   body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 760px;
          margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
   h1 { font-size: 1.4rem; }
@@ -14,59 +17,140 @@
   input { width: 100%; box-sizing: border-box; padding: .45rem;
           font-family: ui-monospace, monospace; font-size: .85rem; }
   button { padding: .5rem 1.2rem; font-size: 1rem; cursor: pointer; margin-top: .8rem; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
   #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
          font-size: .8rem; background: #8881; border-radius: 8px;
          padding: .8rem; min-height: 8rem; }
   .ok { color: #2a2; } .err { color: #d33; }
+  .note { font-size: .75rem; opacity: .7; margin: .3rem 0 0; }
+  .lede { font-size: 1.05rem; margin: .2rem 0 .6rem; }
+  .steps { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+           list-style: none; padding: 0; margin: 1rem 0 0; }
+  .steps li { border: 1px solid #8884; border-radius: 8px; padding: .6rem .7rem;
+              font-size: .8rem; }
+  .steps b { display: block; font-size: .75rem; letter-spacing: .04em;
+             text-transform: uppercase; opacity: .6; margin-bottom: .2rem; }
+  .banner { border: 1px solid #8884; border-left: 4px solid #e0a020;
+            border-radius: 8px; background: #e0a02014; padding: .5rem .7rem;
+            font-size: .78rem; margin: 1.2rem 0; }
+  /* Network provenance: the accent below marks bytes that came off the
+     network, never anything the web server shipped. */
+  .legend { display: flex; align-items: center; gap: .5rem; font-size: .78rem;
+            opacity: .85; margin-bottom: .8rem; }
+  .legend .swatch { width: .8rem; height: .8rem; border-radius: 3px;
+                    border: 2px solid var(--net); background: var(--net-soft);
+                    flex: none; }
+  .net-badge { border: 1px solid var(--net); background: var(--net-soft);
+               color: var(--net); border-radius: 6px; padding: .25rem .45rem;
+               font-size: .7rem; font-weight: 600; line-height: 1.4;
+               font-family: ui-monospace, monospace; margin: 0 0 .4rem;
+               overflow-wrap: anywhere; }
+  .banner strong { font-weight: 600; }
+  .gallery { display: grid; gap: .8rem;
+             grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .card { border: 1px solid #8884; border-radius: 8px; padding: .7rem; }
+  .card h3 { font-size: .9rem; margin: 0; overflow-wrap: anywhere; }
+  .card .kind { font-size: .7rem; opacity: .6; font-family: ui-monospace, monospace; }
+  .card button { margin-top: .5rem; padding: .35rem .9rem; font-size: .85rem; }
+  .card .status { font-size: .75rem; opacity: .85; margin-top: .4rem;
+                  font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  .card .media { margin-top: .5rem; }
+  .card .media img { max-width: 100%; height: auto; border-radius: 4px; display: block; }
+  .card .media audio { width: 100%; }
+  footer { margin-top: 2rem; padding-top: .8rem; border-top: 1px solid #8884;
+           font-size: .75rem; opacity: .7; }
+  /* Last, so it wins over the plain .card/.log frames it replaces. */
+  .netloaded { border: 1px solid var(--net); border-radius: 8px;
+               box-shadow: 0 0 0 1px var(--net); background: var(--net-soft); }
+  #log .netloaded { padding: .5rem .7rem; margin-top: .5rem; }
 </style>
 </head>
 <body>
-<h1>Autonomi über WebRTC-Direct — ohne Installation</h1>
-<p>Diese Seite verbindet sich direkt mit einem ant-node (PQC-Tunnel:
-ML-KEM-768 + ML-DSA-65), lädt eine Datei, verifiziert jeden Chunk gegen seine
-BLAKE3-Adresse und entschlüsselt sie im Browser.</p>
+<h1>Autonomi WebRTC Browser Demo — no install</h1>
+
+<p class="lede">This web page came from an ordinary web server. The files below
+did not.</p>
+
+<p>When you press <em>Load</em>, your browser opens its own direct WebRTC
+connections to storage nodes — no gateway, no backend, nobody in the middle
+relaying the data. Each file arrives as encrypted chunks pulled from several
+nodes at once, and every chunk is cryptographically verified and decrypted
+right here in this tab. This demo runs against a public test network with the
+same architecture proposed for the real Autonomi network.</p>
+
+<ol class="steps">
+  <li><b>1 · Connect</b>Your browser asks one node which nodes hold the file,
+      then connects straight to those nodes.</li>
+  <li><b>2 · Fetch</b>The file's encrypted chunks arrive from several nodes in
+      parallel — nothing is proxied through a server.</li>
+  <li><b>3 · Verify</b>Each chunk is checked against its cryptographic address
+      and decrypted in the browser. A node can refuse, but it cannot lie.</li>
+</ol>
+
+<div class="banner">
+  <strong>Unofficial tech demo</strong> — community project, not operated by
+  Autonomi. Browser connects directly to demo-devnet nodes via WebRTC.
+  Under the hood: a post-quantum tunnel (ML-KEM-768 + ML-DSA-65) to each node,
+  BLAKE3 content verification and self-decryption in WebAssembly.
+</div>
+
+<fieldset id="gallery-box" hidden>
+  <legend>Demo gallery</legend>
+  <p class="legend"><span class="swatch"></span>
+    <span>Anything framed in this colour arrived <strong>peer-to-peer over
+    WebRTC</strong>, straight from storage nodes — everything else on this page
+    is a normal web-server asset.</span></p>
+  <div id="gallery" class="gallery"></div>
+</fieldset>
 
 <fieldset>
-  <legend>Verbindung</legend>
-  <label>Devnet-Manifest-URL (füllt die Felder automatisch)</label>
-  <input id="manifest" value="http://127.0.0.1:8088/api/devnet-manifest.json">
-  <button id="load-manifest">Manifest laden</button>
+  <legend>Connection</legend>
+  <label>Devnet manifest URL (fills the fields automatically)</label>
+  <input id="manifest" value="./devnet-manifest.json">
+  <button id="load-manifest">Load manifest</button>
   <label>Node (ip:port)</label>
   <input id="node-addr" placeholder="127.0.0.1:20123">
-  <label>Zertifikat-Hash (SHA-256, hex)</label>
+  <label>Certificate hash (SHA-256, hex)</label>
   <input id="cert-hash" placeholder="64 hex chars">
-  <label>PeerId (hex, für PQ-Identitäts-Pinning)</label>
+  <label>PeerId (hex, for PQ identity pinning)</label>
   <input id="peer-id" placeholder="64 hex chars">
 </fieldset>
 
 <fieldset>
   <legend>Download</legend>
-  <label>Datei-Adresse (public upload, 64 hex)</label>
-  <input id="address" placeholder="Adresse aus Upload oder `ant file upload --public`">
-  <button id="download">Verbinden &amp; herunterladen</button>
+  <label>File address (public upload, 64 hex)</label>
+  <input id="address" placeholder="address from an upload or `ant file upload --public`">
+  <button id="download">Connect &amp; download</button>
 </fieldset>
 
-<fieldset>
+<fieldset id="upload-box">
   <legend>Upload</legend>
-  <label>Zahlungsweg</label>
+  <label>Payment path</label>
   <select id="pay-method">
-    <option value="anvil">Anvil-Devnet-Account (kein Klick nötig)</option>
-    <option value="auto">MetaMask, wenn vorhanden — sonst Anvil</option>
-    <option value="metamask">Immer MetaMask</option>
+    <option value="anvil">Anvil devnet account (no click needed)</option>
+    <option value="auto">MetaMask if present — otherwise Anvil</option>
+    <option value="metamask">Always MetaMask</option>
   </select>
-  <button id="connect-wallet" type="button">Guthaben zeigen</button>
-  <p style="font-size:.75rem;opacity:.7;margin:.3rem 0 0">
-    MetaMask-Test: Anvil-Konto <code>0xac0974…f2ff80</code> in MetaMask
-    importieren; die Seite fügt die Devnet-Chain automatisch hinzu. Ohne
-    MetaMask läuft alles über den Anvil-Account des Manifests.
+  <button id="connect-wallet" type="button">Show balance</button>
+  <p class="note">
+    MetaMask test: import the Anvil account <code>0xac0974…f2ff80</code> into
+    MetaMask; the page adds the devnet chain automatically. Without MetaMask
+    everything runs through the manifest's Anvil account.
   </p>
+  <p id="upload-note" class="note" hidden></p>
   <div id="balances" style="font-size:.8rem;opacity:.85;margin-top:.4rem"></div>
-  <label>Datei</label>
+  <label>File</label>
   <input id="upload-file" type="file">
-  <button id="upload">Verbinden &amp; hochladen</button>
+  <button id="upload">Connect &amp; upload</button>
 </fieldset>
 
-<div id="log">bereit.</div>
+<div id="log">ready.</div>
+
+<footer>
+  Unofficial tech demo — community project, not operated by Autonomi. The
+  browser connects directly to demo-devnet nodes via WebRTC; content is
+  BLAKE3-verified and decrypted locally.
+</footer>
 
 <script type="module">
 import init, { WasmClient } from "./pkg/ant_wasm_client.js";
@@ -79,52 +163,254 @@ const log = (msg, cls) => {
   $("log").appendChild(line);
 };
 
+// The manifest last loaded successfully — upload and balance reuse it
+// instead of re-fetching (and it decides which payment paths exist).
+let manifest = null;
+
 await init();
-log("WASM geladen.");
+log("WASM loaded.");
+
+// ---------------------------------------------------------------- manifest
+
+// Fill the connection fields from a devnet manifest and enable exactly the
+// payment paths it supports. A public manifest is stripped of
+// `evm.wallet_private_key` (and possibly of `evm` entirely) — the page then
+// runs download-only.
+function applyManifest(m) {
+  if (!m.webrtc) throw new Error("manifest has no webrtc section (start the devnet with --webrtc-port)");
+  manifest = m;
+  $("node-addr").value = m.webrtc.address;
+  $("cert-hash").value = m.webrtc.cert_hash;
+  $("peer-id").value = m.webrtc.peer_id;
+  applyPaymentCapabilities(m);
+  return m;
+}
+
+// Show/disable the upload controls according to what the manifest carries.
+///
+// * no `evm` section at all → no payment path exists, hide upload entirely;
+// * `evm` but no `wallet_private_key` → the devnet's unlocked Anvil account
+//   is not ours to spend (public hosting strips the key), so the no-click
+//   Anvil payer is disabled and MetaMask is the only path.
+function applyPaymentCapabilities(m) {
+  const evm = m.evm || null;
+  const hasEvm = !!(evm && evm.rpc_url && evm.payment_token_address && evm.payment_vault_address);
+  const hasAnvilKey = !!(evm && evm.wallet_private_key);
+  const note = $("upload-note");
+
+  $("upload-box").hidden = !hasEvm;
+  if (!hasEvm) {
+    note.hidden = true;
+    return;
+  }
+
+  const anvilOption = $("pay-method").querySelector('option[value="anvil"]');
+  anvilOption.disabled = !hasAnvilKey;
+  if (!hasAnvilKey) {
+    if ($("pay-method").value === "anvil") $("pay-method").value = "metamask";
+    note.textContent = "This manifest carries no devnet wallet key — the no-click Anvil payer is disabled. Upload needs MetaMask (with an account funded on the devnet chain).";
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+}
+
+// The manifest, loading it on demand — so the gallery and the download
+// button work on a freshly opened page without a manual click.
+async function ensureManifest() {
+  if (manifest) return manifest;
+  const res = await fetch($("manifest").value);
+  if (!res.ok) throw new Error(`manifest ${res.status}`);
+  return applyManifest(await res.json());
+}
 
 $("load-manifest").onclick = async () => {
   try {
-    const res = await fetch($("manifest").value);
-    const m = await res.json();
-    if (!m.webrtc) throw new Error("Manifest hat keine webrtc-Sektion (Devnet mit --webrtc-port starten)");
-    $("node-addr").value = m.webrtc.address;
-    $("cert-hash").value = m.webrtc.cert_hash;
-    $("peer-id").value = m.webrtc.peer_id;
-    log(`Manifest geladen: Node ${m.webrtc.address}`, "ok");
+    manifest = null;
+    const m = await ensureManifest();
+    log(`Manifest loaded: node ${m.webrtc.address}`, "ok");
   } catch (e) {
-    log(`Manifest-Fehler: ${e}`, "err");
+    log(`Manifest error: ${e}`, "err");
   }
 };
 
+// ---------------------------------------------------------------- download
+
+// The one network path: connect, discover the responsible peers, fetch every
+// chunk directly from them, verify and decrypt. `report` receives the same
+// progress lines the log shows, so callers can mirror them elsewhere.
+///
+// Returns the plaintext plus the stats worth showing.
+async function downloadAddress(address, report = () => {}) {
+  const [ip, port] = $("node-addr").value.trim().split(":");
+  if (!ip || !port) throw new Error("no node address (load a manifest first)");
+  const t0 = performance.now();
+  const say = (msg, cls) => { log(msg, cls); report(msg, cls); };
+
+  say(`Connecting to ${ip}:${port} …`);
+  const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
+  say(`PQC tunnel up. Node PeerId: ${client.peer_id}`, "ok");
+
+  const peers = JSON.parse(await client.closest_peers_json(address));
+  say(`Discovery: ${peers.length} responsible nodes (ports ${peers.map(p => p.port).join(", ")})`);
+  say(`Fetching ${address} directly from the responsible peers …`);
+  const bytes = await client.download(address);
+  const secs = (performance.now() - t0) / 1000;
+  const stats = {
+    bytes: bytes.length,
+    secs,
+    peers: peers.length,
+    connections: client.connection_count,
+    chunks: client.chunk_count,
+  };
+  say(`Done: ${bytes.length} bytes in ${secs.toFixed(2)}s over ${client.connection_count} direct connections — verified & decrypted.`, "ok");
+  return { bytes, stats };
+}
+
+// One-line stats summary, shared by the manual download and the gallery.
+const statsLine = (s) =>
+  `${formatSize(s.bytes)} · ${(s.bytes / s.secs / 1e6).toFixed(1)} MB/s · ` +
+  `${s.peers} responsible peers discovered`;
+
+// The provenance badge every piece of network-loaded content carries — the
+// accent colour is reserved for exactly this.
+function networkBadge(stats) {
+  const badge = document.createElement("div");
+  badge.className = "net-badge";
+  badge.textContent =
+    `⚡ loaded from the network — ${stats.chunks} chunks from ${stats.connections} nodes, ` +
+    `verified in your browser, ${stats.secs.toFixed(2)} s`;
+  return badge;
+}
+
+const formatSize = (n) =>
+  n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(2)} MiB`
+  : n >= 1024 ? `${(n / 1024).toFixed(1)} KiB`
+  : `${n} bytes`;
+
 $("download").onclick = async () => {
   try {
-    const [ip, port] = $("node-addr").value.trim().split(":");
-    const t0 = performance.now();
-    log(`Verbinde zu ${ip}:${port} …`);
-    const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
-    log(`PQC-Tunnel steht. Node-PeerId: ${client.peer_id}`, "ok");
-
     const address = $("address").value.trim();
-    const peers = JSON.parse(await client.closest_peers_json(address));
-    log(`Discovery: ${peers.length} zuständige Nodes (Ports ${peers.map(p => p.port).join(", ")})`);
-    log(`Lade ${address} direkt von den zuständigen Peers …`);
-    const bytes = await client.download(address);
-    const secs = ((performance.now() - t0) / 1000).toFixed(2);
-    log(`Fertig: ${bytes.length} Bytes in ${secs}s über ${client.connection_count} Direktverbindungen — verifiziert & entschlüsselt.`, "ok");
+    const { bytes, stats } = await downloadAddress(address);
 
     const blob = new Blob([bytes], { type: "application/octet-stream" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `autonomi-${address.slice(0, 8)}.bin`;
-    a.textContent = `💾 Datei speichern (${bytes.length} Bytes)`;
-    $("log").appendChild(a);
+    a.textContent = `💾 Save file (${stats.bytes} bytes)`;
+    // Mark the result as network-loaded, same accent as the gallery.
+    const result = document.createElement("div");
+    result.className = "netloaded";
+    result.append(networkBadge(stats), document.createElement("br"), a);
+    $("log").appendChild(result);
     window.__downloadedBytes = bytes;   // for automated verification
     window.__downloadDone = true;
   } catch (e) {
-    log(`Fehler: ${e}`, "err");
+    log(`Error: ${e}`, "err");
     window.__downloadError = String(e);
   }
 };
+
+// ----------------------------------------------------------------- gallery
+
+// Optional `demo-catalogue.json` next to the page:
+// `{ "items": [{ title, address, type, filename }] }`. Missing file → no
+// gallery, everything else unchanged.
+async function loadGallery() {
+  let catalogue;
+  try {
+    const res = await fetch("./demo-catalogue.json");
+    if (!res.ok) return;
+    catalogue = await res.json();
+  } catch (_) {
+    return;   // no catalogue deployed
+  }
+  const items = Array.isArray(catalogue.items) ? catalogue.items : [];
+  if (!items.length) return;
+  for (const item of items) $("gallery").appendChild(galleryCard(item));
+  $("gallery-box").hidden = false;
+}
+
+// One card: title, load button, per-item status, and the rendered content.
+function galleryCard(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  const title = document.createElement("h3");
+  title.textContent = item.title || item.filename || item.address;
+  card.appendChild(title);
+
+  const kind = document.createElement("div");
+  kind.className = "kind";
+  kind.textContent = item.type || "application/octet-stream";
+  card.appendChild(kind);
+
+  const button = document.createElement("button");
+  button.textContent = "Load";
+  card.appendChild(button);
+
+  const status = document.createElement("div");
+  status.className = "status";
+  card.appendChild(status);
+
+  const media = document.createElement("div");
+  media.className = "media";
+  card.appendChild(media);
+
+  let objectUrl = null;
+  button.onclick = async () => {
+    button.disabled = true;
+    media.replaceChildren();
+    card.classList.remove("netloaded");
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    status.className = "status";
+    status.textContent = "starting …";
+    try {
+      await ensureManifest().catch(() => {});   // fields may be filled manually
+      const { bytes, stats } = await downloadAddress(item.address, (msg) => {
+        status.textContent = msg;
+      });
+      status.className = "status ok";
+      status.textContent = statsLine(stats);
+      objectUrl = URL.createObjectURL(new Blob([bytes], { type: item.type || "application/octet-stream" }));
+      // Accent frame + badge: this card now holds bytes off the network.
+      card.classList.add("netloaded");
+      media.append(networkBadge(stats), renderItem(item, objectUrl, stats));
+      button.textContent = "Reload";
+    } catch (e) {
+      status.className = "status err";
+      status.textContent = `Error: ${e}`;
+    } finally {
+      button.disabled = false;
+    }
+  };
+  return card;
+}
+
+// Render downloaded bytes according to the catalogue's MIME type: images and
+// audio inline, everything else as a save link.
+function renderItem(item, objectUrl, stats) {
+  const type = item.type || "";
+  if (type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = objectUrl;
+    img.alt = item.title || item.filename || "";
+    return img;
+  }
+  if (type.startsWith("audio/")) {
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.src = objectUrl;
+    return audio;
+  }
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = item.filename || `autonomi-${item.address.slice(0, 8)}.bin`;
+  a.textContent = `💾 Save (${formatSize(stats.bytes)})`;
+  return a;
+}
+
+// ------------------------------------------------------------------ upload
 
 // A MetaMask-free payer for the devnet: sends raw eth_sendTransaction to the
 // Anvil RPC from the manifest, using its pre-funded unlocked account. In
@@ -169,7 +455,7 @@ async function rpcCall(rpc, method, params) {
 // client hands us 0x-prefixed to/calldata, so we pass them straight through.
 async function makeMetaMaskPayer(manifest) {
   const eth = window.ethereum;
-  if (!eth) throw new Error("kein window.ethereum (MetaMask nicht installiert)");
+  if (!eth) throw new Error("no window.ethereum (MetaMask not installed)");
   const chainIdHex = await rpcCall(manifest.evm.rpc_url, "eth_chainId", []);
   const accounts = await eth.request({ method: "eth_requestAccounts" });
   const from = accounts[0];
@@ -200,22 +486,28 @@ async function makeMetaMaskPayer(manifest) {
   };
 }
 
-// Choose a payer per the dropdown; "auto" prefers MetaMask when present.
+// Choose a payer per the dropdown; "auto" prefers MetaMask when present. The
+// Anvil payer needs a manifest that still carries its devnet wallet key —
+// public manifests drop it, leaving MetaMask as the only path.
 async function choosePayer(manifest) {
   const method = $("pay-method").value;
   if (method === "metamask" || (method === "auto" && window.ethereum)) {
-    log("Zahlung über MetaMask.");
+    log("Paying via MetaMask.");
     return makeMetaMaskPayer(manifest);
   }
-  log("Zahlung über Anvil-Devnet-Account (kein MetaMask).");
+  if (!manifest.evm.wallet_private_key) {
+    throw new Error("this manifest has no devnet wallet key — choose MetaMask");
+  }
+  log("Paying via the Anvil devnet account (no MetaMask).");
   return makeAnvilPayer(manifest);
 }
 
 // Show the paying account's ANT (ERC-20 balanceOf) and ETH balances.
 $("connect-wallet").onclick = async () => {
   try {
-    const manifest = await fetch($("manifest").value).then(r => r.json());
-    const rpc = manifest.evm.rpc_url;
+    const m = await ensureManifest();
+    if (!m.evm) throw new Error("manifest has no evm section (download-only demo)");
+    const rpc = m.evm.rpc_url;
     let account;
     if (window.ethereum && $("pay-method").value !== "anvil") {
       const accs = await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -226,37 +518,52 @@ $("connect-wallet").onclick = async () => {
     const eth = await rpcCall(rpc, "eth_getBalance", [account, "latest"]);
     // balanceOf(address) selector 0x70a08231 + 32-byte account
     const call = "0x70a08231" + account.replace(/^0x/, "").padStart(64, "0");
-    const ant = await rpcCall(rpc, "eth_call", [{ to: manifest.evm.payment_token_address, data: call }, "latest"]);
+    const ant = await rpcCall(rpc, "eth_call", [{ to: m.evm.payment_token_address, data: call }, "latest"]);
     const toDec = (hex) => (BigInt(hex) / 10n ** 18n).toString();
-    $("balances").textContent = `Konto ${account.slice(0,10)}… — ETH: ${toDec(eth)}, ANT: ${toDec(ant)}`;
+    $("balances").textContent = `Account ${account.slice(0,10)}… — ETH: ${toDec(eth)}, ANT: ${toDec(ant)}`;
   } catch (e) {
-    $("balances").textContent = "Guthaben-Fehler: " + e;
+    $("balances").textContent = "Balance error: " + e;
   }
 };
 
 $("upload").onclick = async () => {
   try {
     const file = $("upload-file").files[0];
-    if (!file) throw new Error("keine Datei gewählt");
-    const manifest = await fetch($("manifest").value).then(r => r.json());
+    if (!file) throw new Error("no file selected");
+    const m = await ensureManifest();
+    if (!m.evm) throw new Error("manifest has no evm section — this deployment is download-only");
     const data = new Uint8Array(await file.arrayBuffer());
     const [ip, port] = $("node-addr").value.trim().split(":");
     const t0 = performance.now();
-    log(`Verbinde zu ${ip}:${port} …`);
+    log(`Connecting to ${ip}:${port} …`);
     const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
-    log(`PQC-Tunnel steht. Lade ${data.length} Bytes hoch (self-encrypt, Quotes, Zahlung, PUT) …`);
-    const payer = await choosePayer(manifest);
-    const address = await client.upload(data, manifest.evm.payment_token_address.replace(/^0x/, ""), manifest.evm.payment_vault_address.replace(/^0x/, ""), payer);
+    log(`PQC tunnel up. Uploading ${data.length} bytes (self-encrypt, quotes, payment, PUT) …`);
+    const payer = await choosePayer(m);
+    const address = await client.upload(data, m.evm.payment_token_address.replace(/^0x/, ""), m.evm.payment_vault_address.replace(/^0x/, ""), payer);
     const secs = ((performance.now() - t0) / 1000).toFixed(2);
-    log(`Upload fertig in ${secs}s. Datei-Adresse: ${address}`, "ok");
+    log(`Upload done in ${secs}s. File address: ${address}`, "ok");
     $("address").value = address;
     window.__uploadAddress = address;
     window.__uploadDone = true;
   } catch (e) {
-    log(`Upload-Fehler: ${e}`, "err");
+    log(`Upload error: ${e}`, "err");
     window.__uploadError = String(e);
   }
 };
+
+// -------------------------------------------------------------------- init
+
+// Auto-load the manifest that sits next to the page (public hosting and the
+// local `cp devnet.json web/devnet-manifest.json` workflow both provide it).
+// A miss is not an error: the URL field stays editable.
+try {
+  const m = await ensureManifest();
+  log(`Manifest loaded: node ${m.webrtc.address}`, "ok");
+} catch (e) {
+  log(`No manifest auto-loaded (${e}) — enter a URL and press "Load manifest".`);
+}
+
+await loadGallery();
 </script>
 </body>
 </html>
