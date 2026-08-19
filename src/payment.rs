@@ -303,9 +303,8 @@ macro_rules! bin_bytes_mod {
                 }
 
                 fn visit_bytes<E: Error>(self, v: &[u8]) -> Result<Self::Value, E> {
-                    <[u8; $n]>::try_from(v).map_err(|_| {
-                        E::custom(format!("expected {} bytes, got {}", $n, v.len()))
-                    })
+                    <[u8; $n]>::try_from(v)
+                        .map_err(|_| E::custom(format!("expected {} bytes, got {}", $n, v.len())))
                 }
 
                 fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {

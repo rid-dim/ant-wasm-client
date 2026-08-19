@@ -70,7 +70,9 @@ impl NodeConnection {
         let frame = self.transport.recv_frame().await?;
         let (resp_seq, plaintext) = self.cipher.open_response(&frame)?;
         if resp_seq != seq {
-            return Err(format!("response seq {resp_seq} does not match request {seq}"));
+            return Err(format!(
+                "response seq {resp_seq} does not match request {seq}"
+            ));
         }
         if plaintext.first() != Some(&tag) {
             return Err("unexpected response protocol tag".into());

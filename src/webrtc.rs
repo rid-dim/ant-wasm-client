@@ -139,6 +139,12 @@ impl Transport {
     }
 
     /// Receive the next complete application frame.
+    ///
+    /// The `receiver` borrow is held across the await, which is sound here:
+    /// a `NodeConnection` issues one request at a time, so there is never a
+    /// second concurrent `recv_frame` on the same connection to clash with
+    /// the borrow.
+    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn recv_frame(&self) -> Result<Vec<u8>, String> {
         loop {
             if let Some(frame) = self.frame_buf.borrow_mut().push(&[])? {

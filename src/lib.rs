@@ -168,8 +168,7 @@ impl WasmClient {
         let conn = self.connection_for(peer).await?;
         let (quote_bytes, already_stored, commitment) =
             request_quote(&conn, address, data_size).await?;
-        let quote =
-            payment::parse_quote(&quote_bytes).map_err(|e| format!("quote parse: {e}"))?;
+        let quote = payment::parse_quote(&quote_bytes).map_err(|e| format!("quote parse: {e}"))?;
         if quote.content != address {
             return Err("quote is for a different address".into());
         }
@@ -265,7 +264,11 @@ impl WasmClient {
     /// and the upload flow driven from JS.
     pub async fn closest_peers_json(&self, address_hex: String) -> Result<String, JsValue> {
         let address = parse_address(&address_hex).map_err(js_err)?;
-        let peers = self.bootstrap.closest_peers(address).await.map_err(js_err)?;
+        let peers = self
+            .bootstrap
+            .closest_peers(address)
+            .await
+            .map_err(js_err)?;
         let items: Vec<String> = peers
             .iter()
             .map(|p| {
@@ -493,7 +496,11 @@ async fn call_pay(
 fn js_display(value: &JsValue) -> String {
     value
         .as_string()
-        .or_else(|| js_sys::JSON::stringify(value).ok().and_then(|s| s.as_string()))
+        .or_else(|| {
+            js_sys::JSON::stringify(value)
+                .ok()
+                .and_then(|s| s.as_string())
+        })
         .unwrap_or_else(|| "<non-string JS error>".to_string())
 }
 

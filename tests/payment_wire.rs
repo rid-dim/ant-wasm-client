@@ -70,7 +70,10 @@ fn decodes_every_field_of_the_evmlib_quote() {
 
     assert_eq!(hex::encode(quote.content), expected["content_hex"]);
     assert_eq!(quote.timestamp.secs, expected["timestamp_secs"]);
-    assert_eq!(u64::from(quote.timestamp.nanos), expected["timestamp_nanos"]);
+    assert_eq!(
+        u64::from(quote.timestamp.nanos),
+        expected["timestamp_nanos"]
+    );
     assert_eq!(hex::encode(quote.price), expected["price_be_hex"]);
     assert_eq!(
         hex::encode(quote.rewards_address),
@@ -156,9 +159,12 @@ fn builds_the_tagged_single_node_proof_byte_for_byte() {
         .collect();
     assert_eq!(sidecars.len(), 2);
 
-    let bytes =
-        serialize_single_node_proof(peer_quotes.clone(), tx_hash, sidecars.clone()).expect("encode");
-    assert_eq!(bytes.len(), proof["total_len"].as_u64().expect("len") as usize);
+    let bytes = serialize_single_node_proof(peer_quotes.clone(), tx_hash, sidecars.clone())
+        .expect("encode");
+    assert_eq!(
+        bytes.len(),
+        proof["total_len"].as_u64().expect("len") as usize
+    );
     assert_eq!(bytes, PROOF_BIN, "proof bytes differ from ant-protocol's");
 }
 
