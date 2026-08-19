@@ -5,7 +5,10 @@
 //! Requests are issued sequentially per connection and correlated by the
 //! monotonic sequence number.
 
-use crate::discovery::{DiscoveryBody, DiscoveryMessage, PROTO_CHUNK, PROTO_DISCOVERY};
+use crate::discovery::{
+    DiscoveryBody, DiscoveryMessage, SignalRelayBody, SignalRelayMessage, SignalRelayRequest,
+    PROTO_CHUNK, PROTO_DISCOVERY, PROTO_SIGNAL,
+};
 use crate::protocol::{ChunkGetRequest, ChunkGetResponse, ChunkMessage, ChunkMessageBody};
 use crate::tunnel::{ClientHandshake, SessionCipher, MAX_SEQ};
 use crate::webrtc::Transport;
@@ -38,7 +41,29 @@ impl NodeConnection {
         expected_peer_id: Option<&[u8; 32]>,
     ) -> Result<Self, String> {
         let transport = Transport::connect(ip, port, cert_hash_hex).await?;
+        Self::establish(transport, expected_peer_id).await
+    }
 
+    /// Connect to a NAT'd target node via full ICE, relaying SDP through
+    /// `relay` (a node we already have an open tunnel to). `stun` is `ip:port`
+    /// of any reachable node used as the browser's ICE/STUN server.
+    pub async fn connect_via_relay(
+        relay: &NodeConnection,
+        stun: &str,
+        target_peer_id: [u8; 32],
+    ) -> Result<Self, String> {
+        let transport = Transport::connect_via_relay(stun, |offer_sdp| {
+            relay.signal_relay(target_peer_id, offer_sdp)
+        })
+        .await?;
+        Self::establish(transport, Some(&target_peer_id)).await
+    }
+
+    /// Run the PQC handshake over an open transport and build the session.
+    async fn establish(
+        transport: Transport,
+        expected_peer_id: Option<&[u8; 32]>,
+    ) -> Result<Self, String> {
         let (handshake, hello) = ClientHandshake::start()?;
         transport.send_frame(&hello)?;
         let accept = transport.recv_frame().await?;
@@ -146,6 +171,29 @@ impl NodeConnection {
             DiscoveryBody::ClosestPeersResponse(r) => Ok(r.peers),
             DiscoveryBody::Error(e) => Err(format!("discovery error: {e}")),
             DiscoveryBody::ClosestPeersRequest(_) => Err("unexpected discovery response".into()),
+        }
+    }
+
+    /// Ask this (reachable) node to relay an ICE offer to a NAT'd target
+    /// node, returning the target's SDP answer.
+    pub async fn signal_relay(
+        &self,
+        target_peer_id: [u8; 32],
+        sdp_offer: String,
+    ) -> Result<String, String> {
+        let request = SignalRelayMessage {
+            request_id: u64::from(self.next_seq.get()),
+            body: SignalRelayBody::Request(SignalRelayRequest {
+                target_peer_id,
+                sdp_offer,
+            }),
+        };
+        let plaintext = self.round_trip(PROTO_SIGNAL, &request.encode()?).await?;
+        let response = SignalRelayMessage::decode(&plaintext)?;
+        match response.body {
+            SignalRelayBody::Response(r) => Ok(r.sdp_answer),
+            SignalRelayBody::Error(e) => Err(format!("signal relay error: {e}")),
+            SignalRelayBody::Request(_) => Err("unexpected signal-relay response".into()),
         }
     }
 

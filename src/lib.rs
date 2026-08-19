@@ -273,6 +273,26 @@ impl WasmClient {
         Ok(hex::encode(map_address))
     }
 
+    /// Diagnostic: connect to a specific peer **via relayed ICE signaling**
+    /// through the bootstrap node, then fetch a chunk from it. Exercises the
+    /// NAT-traversal path (STUN reflector + SDP relay + full-ICE answerer)
+    /// even when the peer would also be directly reachable. `target_*` come
+    /// from a discovery result. Returns the chunk length on success.
+    pub async fn relayed_fetch(
+        &self,
+        target_peer_id_hex: String,
+        stun_addr: String,
+        address_hex: String,
+    ) -> Result<usize, JsValue> {
+        let target = parse_address(&target_peer_id_hex).map_err(js_err)?;
+        let address = parse_address(&address_hex).map_err(js_err)?;
+        let conn = NodeConnection::connect_via_relay(&self.bootstrap, &stun_addr, target)
+            .await
+            .map_err(js_err)?;
+        let content = conn.get_verified(address).await.map_err(js_err)?;
+        Ok(content.len())
+    }
+
     /// The peers currently responsible for an address, as JSON
     /// (`[{peer_id, ip, port, cert_hash}]`, hex-encoded) — for diagnostics
     /// and the upload flow driven from JS.

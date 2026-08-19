@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub const PROTO_CHUNK: u8 = 0x01;
 /// Protocol tag: tunnel plaintext is a [`DiscoveryMessage`].
 pub const PROTO_DISCOVERY: u8 = 0x02;
+/// Protocol tag: tunnel plaintext is a [`SignalRelayMessage`] — asking this
+/// (reachable) node to relay an ICE offer to a NAT'd target node.
+pub const PROTO_SIGNAL: u8 = 0x03;
 
 /// Wire envelope for the discovery protocol family (postcard).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,5 +69,55 @@ impl DiscoveryMessage {
     /// Decode with postcard.
     pub fn decode(data: &[u8]) -> Result<Self, String> {
         postcard::from_bytes(data).map_err(|e| format!("discovery decode: {e}"))
+    }
+}
+
+// --- Signaling relay (PROTO_SIGNAL) — mirror of ant-node discovery.rs ---
+
+/// Wire envelope for the browser⇆relay signaling family (postcard).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalRelayMessage {
+    /// Sender-assigned identifier, echoed back in the response.
+    pub request_id: u64,
+    /// The message body.
+    pub body: SignalRelayBody,
+}
+
+/// Signaling-relay message bodies. Variant order is wire-relevant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SignalRelayBody {
+    /// Browser → relay node: relay this offer to `target_peer_id`.
+    Request(SignalRelayRequest),
+    /// Relay node → browser: the target's SDP answer.
+    Response(SignalRelayResponse),
+    /// Relay node → browser: request-level failure.
+    Error(String),
+}
+
+/// Request to reach a NAT'd target node through the relay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalRelayRequest {
+    /// The target node's `PeerId`.
+    pub target_peer_id: [u8; 32],
+    /// The browser's SDP offer for the target.
+    pub sdp_offer: String,
+}
+
+/// The target node's answer, relayed back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalRelayResponse {
+    /// The target node's SDP answer.
+    pub sdp_answer: String,
+}
+
+impl SignalRelayMessage {
+    /// Encode with postcard.
+    pub fn encode(&self) -> Result<Vec<u8>, String> {
+        postcard::to_stdvec(self).map_err(|e| format!("signal-relay encode: {e}"))
+    }
+
+    /// Decode with postcard.
+    pub fn decode(data: &[u8]) -> Result<Self, String> {
+        postcard::from_bytes(data).map_err(|e| format!("signal-relay decode: {e}"))
     }
 }

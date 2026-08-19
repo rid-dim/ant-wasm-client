@@ -70,6 +70,68 @@ impl Transport {
             .map_err(|e| format!("setRemoteDescription: {e:?}"))?;
 
         Self::wait_for_open(&dc).await?;
+        Self::from_open(pc, dc)
+    }
+
+    /// Connect to a NAT'd target node via full ICE, exchanging SDP through a
+    /// reachable relay node. `stun` is `ip:port` of a reachable node that
+    /// answers STUN binding requests (any node with a listener), used as the
+    /// browser's ICE server so it gathers a clean server-reflexive candidate
+    /// (avoiding Chrome's mDNS host-candidate obfuscation). `exchange` sends
+    /// the browser's offer SDP through the relay and resolves to the target's
+    /// answer SDP.
+    pub async fn connect_via_relay<F, Fut>(stun: &str, exchange: F) -> Result<Self, String>
+    where
+        F: FnOnce(String) -> Fut,
+        Fut: std::future::Future<Output = Result<String, String>>,
+    {
+        let config = web_sys::RtcConfiguration::new();
+        let ice_servers = js_sys::Array::new();
+        let server = web_sys::RtcIceServer::new();
+        let urls = js_sys::Array::new();
+        urls.push(&JsValue::from_str(&format!("stun:{stun}")));
+        server.set_urls(&urls);
+        ice_servers.push(&server);
+        config.set_ice_servers(&ice_servers);
+        let pc = RtcPeerConnection::new_with_configuration(&config)
+            .map_err(|e| format!("RTCPeerConnection: {e:?}"))?;
+
+        // In-band (DCEP-negotiated) data channel: the node answerer opens it
+        // from our offer, unlike the pre-negotiated direct path.
+        let dc = pc.create_data_channel("ant");
+
+        let offer = JsFuture::from(pc.create_offer())
+            .await
+            .map_err(|e| format!("createOffer: {e:?}"))?;
+        let offer: web_sys::RtcSessionDescription = offer.unchecked_into();
+        let local = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
+        local.set_sdp(&offer.sdp());
+        JsFuture::from(pc.set_local_description(&local))
+            .await
+            .map_err(|e| format!("setLocalDescription: {e:?}"))?;
+
+        // Wait for ICE gathering so the local description carries all
+        // candidates (non-trickle), then relay it.
+        Self::wait_for_ice_complete(&pc).await;
+        let offer_sdp = pc
+            .local_description()
+            .ok_or_else(|| "no local description after gathering".to_string())?
+            .sdp();
+
+        let answer_sdp = exchange(offer_sdp).await?;
+
+        let remote = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
+        remote.set_sdp(&answer_sdp);
+        JsFuture::from(pc.set_remote_description(&remote))
+            .await
+            .map_err(|e| format!("setRemoteDescription: {e:?}"))?;
+
+        Self::wait_for_open(&dc).await?;
+        Self::from_open(pc, dc)
+    }
+
+    /// Wrap an open peer connection + data channel into a framed transport.
+    fn from_open(pc: RtcPeerConnection, dc: RtcDataChannel) -> Result<Self, String> {
         dc.set_binary_type(web_sys::RtcDataChannelType::Arraybuffer);
 
         let (tx, receiver) = mpsc::unbounded();
@@ -95,6 +157,27 @@ impl Transport {
             receiver: RefCell::new(receiver),
             frame_buf: RefCell::new(FrameBuf::new()),
         })
+    }
+
+    /// Wait until ICE candidate gathering completes (or a 5 s cap elapses).
+    async fn wait_for_ice_complete(pc: &RtcPeerConnection) {
+        if pc.ice_gathering_state() == web_sys::RtcIceGatheringState::Complete {
+            return;
+        }
+        let (tx, rx) = oneshot::channel::<()>();
+        let tx = Rc::new(RefCell::new(Some(tx)));
+        let pc_clone = pc.clone();
+        let notify = Closure::wrap(Box::new(move || {
+            if pc_clone.ice_gathering_state() == web_sys::RtcIceGatheringState::Complete {
+                if let Some(tx) = tx.borrow_mut().take() {
+                    let _ = tx.send(());
+                }
+            }
+        }) as Box<dyn FnMut()>);
+        pc.set_onicegatheringstatechange(Some(notify.as_ref().unchecked_ref()));
+        let timeout = gloo_timers::future::TimeoutFuture::new(5_000);
+        futures::future::select(Box::pin(rx), Box::pin(timeout)).await;
+        pc.set_onicegatheringstatechange(None);
     }
 
     async fn wait_for_open(dc: &RtcDataChannel) -> Result<(), String> {
