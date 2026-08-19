@@ -1,11 +1,23 @@
 {
   "_schema": {
-    "_": "Optional file, fetched as ./demo-catalogue.json next to index.html. Copy this file, replace the addresses with the ones the upload returned, drop the underscore keys. If the file is absent (404) the page simply shows no gallery.",
+    "_": "Optional file, fetched as ./demo-catalogue.json next to index.html. Copy this file, replace the addresses with the ones the upload returned, drop the underscore keys. If the file is absent (404) the page simply shows no gallery and no background.",
+    "background": "optional {title, address, type} — downloaded automatically on page load over the same network path and faded in as the page background; omit it and the page looks exactly as it does today",
+    "figure": "optional {title, address, type} — an explainer diagram (SVG or bitmap) auto-loaded the same way and shown inside the intro section, with the accent frame and the provenance badge; its space is reserved by a placeholder while it loads",
     "items": "array of gallery entries, rendered in order, one card each",
     "items[].title": "card heading (string, required)",
     "items[].address": "public file address, 64 hex chars — the data-map chunk address returned by `ant file upload --public` or by this page's upload (required)",
     "items[].type": "MIME type: image/* renders as <img>, audio/* as <audio controls>, anything else as a save link (optional, defaults to application/octet-stream)",
     "items[].filename": "file name suggested by the save link (optional)"
+  },
+  "background": {
+    "title": "Hubble Ultra Deep Field (NASA/ESA, CC BY 4.0)",
+    "address": "4444444444444444444444444444444444444444444444444444444444444444",
+    "type": "image/jpeg"
+  },
+  "figure": {
+    "title": "Same protocol — only the pipe differs",
+    "address": "5555555555555555555555555555555555555555555555555555555555555555",
+    "type": "image/svg+xml"
   },
   "items": [
     {

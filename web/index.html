@@ -6,20 +6,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   /* --net is the one accent reserved for content that arrived over the
-     network — never used for ordinary page furniture. */
-  :root { color-scheme: light dark; --net: #6d3bf5; --net-soft: #6d3bf514; }
+     network — never used for ordinary page furniture.
+     --panel is the backdrop every text block sits on: invisible until a
+     network background is loaded, opaque enough afterwards to keep the
+     contrast the page has without one. */
+  :root { color-scheme: light dark; --net: #6d3bf5; --net-soft: #6d3bf514;
+          --panel: transparent; --panel-strong: #8881; }
   @media (prefers-color-scheme: dark) { :root { --net: #a78bfa; --net-soft: #a78bfa1c; } }
   body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 760px;
          margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
   h1 { font-size: 1.4rem; }
-  fieldset { border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem;
+             background: var(--panel); }
   label { display: block; margin-top: .5rem; font-size: .85rem; opacity: .8; }
   input { width: 100%; box-sizing: border-box; padding: .45rem;
           font-family: ui-monospace, monospace; font-size: .85rem; }
   button { padding: .5rem 1.2rem; font-size: 1rem; cursor: pointer; margin-top: .8rem; }
   button:disabled { cursor: not-allowed; opacity: .5; }
   #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
-         font-size: .8rem; background: #8881; border-radius: 8px;
+         font-size: .8rem; background: var(--panel-strong); border-radius: 8px;
          padding: .8rem; min-height: 8rem; }
   .ok { color: #2a2; } .err { color: #d33; }
   .note { font-size: .75rem; opacity: .7; margin: .3rem 0 0; }
@@ -27,11 +32,12 @@
   .steps { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
            list-style: none; padding: 0; margin: 1rem 0 0; }
   .steps li { border: 1px solid #8884; border-radius: 8px; padding: .6rem .7rem;
-              font-size: .8rem; }
+              font-size: .8rem; background: var(--panel); }
   .steps b { display: block; font-size: .75rem; letter-spacing: .04em;
              text-transform: uppercase; opacity: .6; margin-bottom: .2rem; }
   .banner { border: 1px solid #8884; border-left: 4px solid #e0a020;
-            border-radius: 8px; background: #e0a02014; padding: .5rem .7rem;
+            border-radius: 8px; padding: .5rem .7rem; background-color: var(--panel);
+            background-image: linear-gradient(#e0a02014, #e0a02014);
             font-size: .78rem; margin: 1.2rem 0; }
   /* Network provenance: the accent below marks bytes that came off the
      network, never anything the web server shipped. */
@@ -48,7 +54,8 @@
   .banner strong { font-weight: 600; }
   .gallery { display: grid; gap: .8rem;
              grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-  .card { border: 1px solid #8884; border-radius: 8px; padding: .7rem; }
+  .card { border: 1px solid #8884; border-radius: 8px; padding: .7rem;
+          background: var(--panel); }
   .card h3 { font-size: .9rem; margin: 0; overflow-wrap: anywhere; }
   .card .kind { font-size: .7rem; opacity: .6; font-family: ui-monospace, monospace; }
   .card button { margin-top: .5rem; padding: .35rem .9rem; font-size: .85rem; }
@@ -61,11 +68,74 @@
            font-size: .75rem; opacity: .7; }
   /* Last, so it wins over the plain .card/.log frames it replaces. */
   .netloaded { border: 1px solid var(--net); border-radius: 8px;
-               box-shadow: 0 0 0 1px var(--net); background: var(--net-soft); }
+               box-shadow: 0 0 0 1px var(--net); background-color: var(--panel);
+               background-image: linear-gradient(var(--net-soft), var(--net-soft)); }
   #log .netloaded { padding: .5rem .7rem; margin-top: .5rem; }
+
+  /* The network-loaded backdrop: fixed, cover-sized, faded in once the bytes
+     are here. Its ::after shade is what keeps the text readable — the photo
+     stays visible in the page margins, but never behind a line of text at
+     full strength. */
+  #bg { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+        background-position: center; background-size: cover;
+        background-repeat: no-repeat; opacity: 0; transition: opacity 1.1s ease; }
+  #bg.visible { opacity: 1; }
+  #bg::after { content: ""; position: absolute; inset: 0;
+               background: linear-gradient(rgba(8,9,14,.7), rgba(8,9,14,.56) 35%,
+                                           rgba(8,9,14,.56) 55%, rgba(8,9,14,.78)); }
+  /* With a photo behind the page, the reading surface goes dark and the
+     panels stop being transparent — every rule above picks this up through
+     --panel / --panel-strong, so contrast matches the no-background page. */
+  :root.has-bg { color-scheme: dark; --net: #a78bfa; --net-soft: #a78bfa1c;
+                 --panel: rgba(12,13,18,.66); --panel-strong: rgba(12,13,18,.8); }
+  :root.has-bg fieldset, :root.has-bg .steps li, :root.has-bg .card,
+  :root.has-bg .banner, :root.has-bg #log { transition: background-color .8s ease; }
+  /* Prose sits directly on the shaded photo — a shadow keeps it legible even
+     over the bright parts of an image. */
+  :root.has-bg body { text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  :root.has-bg input, :root.has-bg select, :root.has-bg button,
+  :root.has-bg #log { text-shadow: none; }
+  #bg-badge { position: fixed; right: .8rem; bottom: .8rem; z-index: 5; margin: 0;
+              max-width: min(23rem, calc(100vw - 2rem));
+              padding: .4rem 1.4rem .4rem .55rem;
+              background-color: rgba(12,13,18,.88);
+              background-image: linear-gradient(var(--net-soft), var(--net-soft));
+              box-shadow: 0 2px 14px #0006; }
+  #bg-badge .bg-title { font-weight: 400; opacity: .8; margin-top: .15rem; }
+  #bg-badge .bg-close { position: absolute; top: .05rem; right: .1rem; margin: 0;
+                        padding: 0 .3rem; border: 0; background: none;
+                        color: inherit; font-size: 1rem; line-height: 1.2; }
+
+  /* The explainer figure is fetched from the network too. Its box keeps the
+     final aspect ratio from the first paint, so swapping the image in shifts
+     nothing; until then a shimmer runs across the empty frame. */
+  .figure { margin: 1.2rem 0 0; transition: opacity .6s ease; }
+  .figure.failed { opacity: 0; }
+  .fig-box { position: relative; width: 100%; max-width: 640px; margin: 0 auto;
+             aspect-ratio: 880 / 460; border: 1px dashed #8886; border-radius: 8px;
+             background: var(--panel); overflow: hidden; }
+  .fig-box.loading { border-color: var(--net); }
+  .fig-box img { width: 100%; height: 100%; object-fit: contain; display: block;
+                 opacity: 0; transition: opacity .8s ease; }
+  .fig-box img.visible { opacity: 1; }
+  .fig-shimmer { position: absolute; inset: 0; background-size: 250% 100%;
+                 background-image: linear-gradient(100deg, transparent 20%,
+                     var(--net-soft) 42%, var(--net-soft) 52%, transparent 74%);
+                 animation: fig-shimmer 1.8s linear infinite; }
+  @keyframes fig-shimmer { from { background-position: 130% 0; }
+                           to   { background-position: -70% 0; } }
+  .figure .net-badge { display: inline-block; margin: .5rem 0 0; }
+  .figure .fig-title { font-size: .75rem; opacity: .7; margin-top: .2rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .fig-shimmer { animation: none; }
+    #bg, .fig-box img, .figure { transition: none; }
+  }
 </style>
 </head>
 <body>
+<div id="bg" aria-hidden="true"></div>
+<div id="bg-badge" class="net-badge" hidden></div>
+
 <h1>Autonomi WebRTC Browser Demo — no install</h1>
 
 <p class="lede">This web page came from an ordinary web server. The files below
@@ -86,6 +156,10 @@ same architecture proposed for the real Autonomi network.</p>
   <li><b>3 · Verify</b>Each chunk is checked against its cryptographic address
       and decrypted in the browser. A node can refuse, but it cannot lie.</li>
 </ol>
+
+<div id="figure" class="figure" hidden>
+  <div id="figure-box" class="fig-box loading"><div class="fig-shimmer"></div></div>
+</div>
 
 <div class="banner">
   <strong>Unofficial tech demo</strong> — community project, not operated by
@@ -239,13 +313,15 @@ $("load-manifest").onclick = async () => {
 // The one network path: connect, discover the responsible peers, fetch every
 // chunk directly from them, verify and decrypt. `report` receives the same
 // progress lines the log shows, so callers can mirror them elsewhere.
-///
+// `quiet` keeps the progress out of the page log (the background loader
+// reports one summary line instead of a play-by-play).
+//
 // Returns the plaintext plus the stats worth showing.
-async function downloadAddress(address, report = () => {}) {
+async function downloadAddress(address, report = () => {}, { quiet = false } = {}) {
   const [ip, port] = $("node-addr").value.trim().split(":");
   if (!ip || !port) throw new Error("no node address (load a manifest first)");
   const t0 = performance.now();
-  const say = (msg, cls) => { log(msg, cls); report(msg, cls); };
+  const say = (msg, cls) => { if (!quiet) log(msg, cls); report(msg, cls); };
 
   say(`Connecting to ${ip}:${port} …`);
   const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
@@ -314,17 +390,20 @@ $("download").onclick = async () => {
 // ----------------------------------------------------------------- gallery
 
 // Optional `demo-catalogue.json` next to the page:
-// `{ "items": [{ title, address, type, filename }] }`. Missing file → no
-// gallery, everything else unchanged.
-async function loadGallery() {
-  let catalogue;
+// `{ "background": { title, address, type },
+//    "items": [{ title, address, type, filename }] }`.
+// Missing file → no gallery and no background, everything else unchanged.
+async function fetchCatalogue() {
   try {
     const res = await fetch("./demo-catalogue.json");
-    if (!res.ok) return;
-    catalogue = await res.json();
+    if (!res.ok) return null;
+    return await res.json();
   } catch (_) {
-    return;   // no catalogue deployed
+    return null;   // no catalogue deployed
   }
+}
+
+function loadGallery(catalogue) {
   const items = Array.isArray(catalogue.items) ? catalogue.items : [];
   if (!items.length) return;
   for (const item of items) $("gallery").appendChild(galleryCard(item));
@@ -408,6 +487,88 @@ function renderItem(item, objectUrl, stats) {
   a.download = item.filename || `autonomi-${item.address.slice(0, 8)}.bin`;
   a.textContent = `💾 Save (${formatSize(stats.bytes)})`;
   return a;
+}
+
+// -------------------------------------------------------------- background
+
+// The catalogue's optional `background` is pulled over the same network path
+// as everything else and faded in behind the page — the strongest form of the
+// demo's point: even the backdrop is peer-to-peer. Fire-and-forget: it starts
+// after init, never blocks it, and any failure leaves the page as it is.
+async function loadBackground(bg) {
+  if (!bg || !bg.address) return;
+  try {
+    const { bytes, stats } = await downloadAddress(bg.address, () => {}, { quiet: true });
+    const url = URL.createObjectURL(new Blob([bytes], { type: bg.type || "image/jpeg" }));
+    // Decode first so the fade starts on a fully painted image.
+    const probe = new Image();
+    probe.src = url;
+    await probe.decode().catch(() => {});
+    $("bg").style.backgroundImage = `url("${url}")`;
+    // Switches the page to its dark reading surface: opaque-ish panels and a
+    // shade over the photo, so every text keeps the contrast it has today.
+    document.documentElement.classList.add("has-bg");
+    requestAnimationFrame(() => $("bg").classList.add("visible"));
+    showBackgroundBadge(bg, stats);
+    log(`Background loaded over WebRTC: ${statsLine(stats)}`, "ok");
+  } catch (e) {
+    log(`Background not loaded (${e}) — page unchanged.`);
+  }
+}
+
+// The catalogue's optional `figure` — the explainer diagram — comes off the
+// network as well. Its frame is put up before the download starts (with the
+// final aspect ratio), so the arriving image never shifts the layout; on
+// failure the frame fades away instead of leaving a dead box.
+async function loadFigure(fig) {
+  if (!fig || !fig.address) return;
+  const figure = $("figure");
+  const box = $("figure-box");
+  figure.hidden = false;
+  try {
+    const { bytes, stats } = await downloadAddress(fig.address, () => {}, { quiet: true });
+    // The MIME type matters: an <img> refuses an SVG blob typed as anything else.
+    const url = URL.createObjectURL(new Blob([bytes], { type: fig.type || "image/svg+xml" }));
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = fig.title || "diagram loaded from the network";
+    await img.decode().catch(() => {});
+    box.querySelector(".fig-shimmer")?.remove();
+    box.classList.remove("loading");
+    box.classList.add("netloaded");
+    box.appendChild(img);
+    requestAnimationFrame(() => img.classList.add("visible"));
+    const caption = document.createElement("div");
+    caption.className = "fig-title";
+    caption.textContent = fig.title || "";
+    figure.append(networkBadge(stats), caption);
+    log(`Figure loaded over WebRTC: ${statsLine(stats)}`, "ok");
+  } catch (e) {
+    figure.classList.add("failed");
+    setTimeout(() => { figure.hidden = true; }, 700);
+    log(`Figure not loaded (${e}) — page unchanged.`);
+  }
+}
+
+// Provenance for the backdrop: a small fixed badge in the same accent
+// language as the gallery badges, dismissible.
+function showBackgroundBadge(bg, stats) {
+  const badge = $("bg-badge");
+  const text = document.createElement("div");
+  text.textContent =
+    `⚡ this page's background arrived over WebRTC — ${stats.chunks} chunks ` +
+    `from ${stats.connections} nodes, ${stats.secs.toFixed(2)} s`;
+  const title = document.createElement("div");
+  title.className = "bg-title";
+  title.textContent = bg.title || bg.address;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "bg-close";
+  close.textContent = "×";
+  close.title = "hide";
+  close.onclick = () => badge.remove();
+  badge.append(close, text, title);
+  badge.hidden = false;
 }
 
 // ------------------------------------------------------------------ upload
@@ -563,7 +724,16 @@ try {
   log(`No manifest auto-loaded (${e}) — enter a URL and press "Load manifest".`);
 }
 
-await loadGallery();
+const catalogue = await fetchCatalogue();
+if (catalogue) {
+  loadGallery(catalogue);
+  // Not awaited: backdrop and figure download while the page is already
+  // usable, and only if a node is actually configured.
+  if (manifest) {
+    loadBackground(catalogue.background);
+    loadFigure(catalogue.figure);
+  }
+}
 </script>
 </body>
 </html>

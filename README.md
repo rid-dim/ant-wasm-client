@@ -47,6 +47,14 @@ Design notes, findings and the node-side change live in the umbrella repo:
   upload with payment-path selection, and an optional **gallery** that loads files from
   the network and renders images/audio inline, with per-item stats (chunks, nodes,
   throughput, elapsed).
+- **Auto-loaded page content** — if the catalogue names them, the page's **background
+  image** and the **explainer figure** are fetched over the same WebRTC path on load,
+  with no click: the backdrop fades in behind a shade that preserves text contrast, the
+  figure's space is reserved by a placeholder so nothing shifts when it arrives, and both
+  carry the accent frame and a provenance badge ("⚡ … n chunks from m nodes, t s").
+  Everything network-loaded is marked in one accent colour that page furniture never
+  uses. Failures are silent apart from a single log line — the page then looks exactly as
+  it does without a catalogue.
 
 ### JS API in short
 
@@ -95,7 +103,7 @@ pkg/ant_wasm_client.js
 pkg/ant_wasm_client_bg.wasm       serve as application/wasm
 pkg/*.d.ts                        optional, types only
 devnet-manifest.json              required — bootstrap node + webrtc {address, cert_hash, peer_id}
-demo-catalogue.json               optional — the gallery; absent (404) simply hides it
+demo-catalogue.json               optional — gallery, background and figure; absent (404) hides them
 ```
 
 - The **public** manifest is the devnet manifest with the `evm` section stripped
@@ -104,8 +112,13 @@ demo-catalogue.json               optional — the gallery; absent (404) simply 
   keyless Anvil payer is disabled and MetaMask remains as the only payment path.
 - `demo-catalogue.json` schema and an example are in
   [`web/demo-catalogue.json.example`](web/demo-catalogue.json.example):
-  `{"items":[{"title","address","type","filename"}]}`, where `type` decides the
-  rendering (`image/*` inline, `audio/*` with controls, anything else a save link).
+  `{"items":[{"title","address","type","filename"}], "background"?: {...}, "figure"?: {...}}`.
+  For `items`, `type` decides the rendering (`image/*` inline, `audio/*` with controls,
+  anything else a save link). The optional `background` (`{title, address, type}`) is
+  auto-loaded on page open and faded in as the page backdrop; the optional `figure`
+  (same shape, SVG or bitmap) is auto-loaded into the intro section with the accent frame
+  and badge. Both are fetched over the network like everything else, both are optional,
+  and a failure of either leaves the rest of the page untouched.
 - The demo page has no backend of any kind — any static host will do.
 
 ## Local development against a devnet
@@ -139,7 +152,8 @@ wallet interaction; MetaMask can be selected instead (the page adds the devnet c
 To fill the gallery, upload some files with the native CLI
 (`SECRET_KEY=<manifest wallet key> ant --devnet-manifest /tmp/devnet.json
 --allow-loopback --evm-network local file upload <file> --public`) and put the returned
-addresses into `web/demo-catalogue.json`.
+addresses into `web/demo-catalogue.json` — as `items`, and optionally as `background`
+(a photo) and `figure` (a diagram).
 
 ## Repo layout
 
