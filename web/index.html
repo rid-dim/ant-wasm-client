@@ -42,8 +42,15 @@ BLAKE3-Adresse und entschlüsselt sie im Browser.</p>
 <fieldset>
   <legend>Download</legend>
   <label>Datei-Adresse (public upload, 64 hex)</label>
-  <input id="address" placeholder="Adresse aus `ant file upload --public`">
+  <input id="address" placeholder="Adresse aus Upload oder `ant file upload --public`">
   <button id="download">Verbinden &amp; herunterladen</button>
+</fieldset>
+
+<fieldset>
+  <legend>Upload (Devnet, ohne MetaMask — zahlt über Anvil)</legend>
+  <label>Datei</label>
+  <input id="upload-file" type="file">
+  <button id="upload">Verbinden &amp; hochladen</button>
 </fieldset>
 
 <div id="log">bereit.</div>
@@ -103,6 +110,68 @@ $("download").onclick = async () => {
   } catch (e) {
     log(`Fehler: ${e}`, "err");
     window.__downloadError = String(e);
+  }
+};
+
+// A MetaMask-free payer for the devnet: sends raw eth_sendTransaction to the
+// Anvil RPC from the manifest, using its pre-funded unlocked account. In
+// production this same callback would instead call window.ethereum.request.
+function makeAnvilPayer(manifest) {
+  const rpc = manifest.evm.rpc_url;
+  // Derive the funded account address from the manifest key via a throwaway
+  // eth_accounts call — Anvil exposes its unlocked accounts.
+  return async (to, calldata) => {
+    // `to`/`calldata` already carry the 0x prefix from the wasm client.
+    const accounts = await rpcCall(rpc, "eth_accounts", []);
+    const from = accounts[0];
+    const txHash = await rpcCall(rpc, "eth_sendTransaction", [{
+      from,
+      to: to.startsWith("0x") ? to : "0x" + to,
+      data: calldata.startsWith("0x") ? calldata : "0x" + calldata,
+      gas: "0x500000",
+    }]);
+    // Wait for the receipt so the next step sees the state change.
+    for (let i = 0; i < 60; i++) {
+      const r = await rpcCall(rpc, "eth_getTransactionReceipt", [txHash]);
+      if (r && r.status === "0x1") return txHash.replace(/^0x/, "");
+      if (r && r.status === "0x0") throw new Error("tx reverted: " + txHash);
+      await new Promise(res => setTimeout(res, 250));
+    }
+    throw new Error("tx not mined: " + txHash);
+  };
+}
+async function rpcCall(rpc, method, params) {
+  const res = await fetch(rpc, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const j = await res.json();
+  if (j.error) throw new Error(method + ": " + JSON.stringify(j.error));
+  return j.result;
+}
+
+$("upload").onclick = async () => {
+  try {
+    const file = $("upload-file").files[0];
+    if (!file) throw new Error("keine Datei gewählt");
+    const manifest = await fetch($("manifest").value).then(r => r.json());
+    const data = new Uint8Array(await file.arrayBuffer());
+    const [ip, port] = $("node-addr").value.trim().split(":");
+    const t0 = performance.now();
+    log(`Verbinde zu ${ip}:${port} …`);
+    const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
+    log(`PQC-Tunnel steht. Lade ${data.length} Bytes hoch (self-encrypt, Quotes, Zahlung über Anvil, PUT) …`);
+    const payer = makeAnvilPayer(manifest);
+    const address = await client.upload(data, manifest.evm.payment_token_address.replace(/^0x/, ""), manifest.evm.payment_vault_address.replace(/^0x/, ""), payer);
+    const secs = ((performance.now() - t0) / 1000).toFixed(2);
+    log(`Upload fertig in ${secs}s. Datei-Adresse: ${address}`, "ok");
+    $("address").value = address;
+    window.__uploadAddress = address;
+    window.__uploadDone = true;
+  } catch (e) {
+    log(`Upload-Fehler: ${e}`, "err");
+    window.__uploadError = String(e);
   }
 };
 </script>

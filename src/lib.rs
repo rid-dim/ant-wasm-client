@@ -49,6 +49,9 @@ const CLOSE_GROUP_SIZE: usize = 7;
 const CLOSE_GROUP_MAJORITY: usize = 4;
 /// The data-type tag for a plain chunk (`DATA_TYPE_CHUNK`).
 const DATA_TYPE_CHUNK: u32 = 0;
+/// Connect+quote attempts per close-group peer before failing the store
+/// (WebRTC handshakes are occasionally flaky).
+const QUOTE_ATTEMPTS: usize = 3;
 
 /// A connected client: one bootstrap session plus a pool of direct
 /// connections to the peers discovery hands out.
@@ -150,6 +153,33 @@ impl WasmClient {
             "no responsible peer served {}: {last_err}",
             hex::encode(address)
         ))
+    }
+
+    /// One connect + quote + verify attempt against a discovered peer.
+    ///
+    /// Returns the verified quote (for this exact address, signed by this
+    /// exact peer) plus the `already_stored` flag and any commitment sidecar.
+    async fn try_quote(
+        &self,
+        peer: &PeerConnectInfo,
+        address: [u8; 32],
+        data_size: usize,
+    ) -> Result<(payment::Quote, bool, Option<Vec<u8>>), String> {
+        let conn = self.connection_for(peer).await?;
+        let (quote_bytes, already_stored, commitment) =
+            request_quote(&conn, address, data_size).await?;
+        let quote =
+            payment::parse_quote(&quote_bytes).map_err(|e| format!("quote parse: {e}"))?;
+        if quote.content != address {
+            return Err("quote is for a different address".into());
+        }
+        if blake3::hash(&quote.pub_key).as_bytes() != &peer.peer_id {
+            return Err("quote public key does not match the peer id".into());
+        }
+        if !payment::verify_quote(&quote) {
+            return Err("quote signature verification failed".into());
+        }
+        Ok((quote, already_stored, commitment))
     }
 
     /// Get or open a direct connection to a discovered peer.
@@ -279,60 +309,53 @@ impl WasmClient {
             ));
         }
 
-        // Collect verified quotes from the close group, closest first.
+        // A single-node payment proof must carry a quote from every one of the
+        // address's closest peers, so all `CLOSE_GROUP_SIZE` must quote. WebRTC
+        // handshakes are occasionally flaky (see the PoC findings), so retry
+        // each peer's connect+quote a few times before giving up — the native
+        // client retries adaptively for the same reason.
         let mut quoted: Vec<QuotedPeer> = Vec::with_capacity(CLOSE_GROUP_SIZE);
         let mut already_stored_count = 0usize;
-        for peer in &peers {
-            if quoted.len() >= CLOSE_GROUP_SIZE {
-                break;
-            }
-            let conn = match self.connection_for(peer).await {
-                Ok(c) => c,
-                Err(_) => continue, // unreachable peer, try the next
-            };
-            let (quote_bytes, already_stored, commitment) =
-                match request_quote(&conn, address, content.len()).await {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-
-            if already_stored {
-                already_stored_count += 1;
-                // Majority reports the chunk already present: nothing to pay
-                // or store.
-                if already_stored_count >= CLOSE_GROUP_MAJORITY {
-                    return Ok(());
+        for peer in peers.iter().take(CLOSE_GROUP_SIZE) {
+            let mut last: String = "no attempt".into();
+            let mut got = false;
+            for attempt in 0..QUOTE_ATTEMPTS {
+                match self.try_quote(peer, address, content.len()).await {
+                    Ok((quote, already_stored, commitment)) => {
+                        if already_stored {
+                            already_stored_count += 1;
+                            if already_stored_count >= CLOSE_GROUP_MAJORITY {
+                                return Ok(());
+                            }
+                        }
+                        // A responsible peer opened a connection; reuse it for
+                        // the PUT.
+                        let conn = self.connection_for(peer).await?;
+                        quoted.push(QuotedPeer {
+                            peer_id: peer.peer_id,
+                            conn,
+                            quote,
+                            commitment,
+                        });
+                        got = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last = e;
+                        // Drop a possibly-broken cached connection before retry.
+                        if attempt + 1 < QUOTE_ATTEMPTS {
+                            self.pool.borrow_mut().remove(&peer.peer_id);
+                        }
+                    }
                 }
             }
-
-            // Verify: parseable, signed, for THIS address, by THIS peer.
-            let quote = match payment::parse_quote(&quote_bytes) {
-                Ok(q) => q,
-                Err(_) => continue,
-            };
-            if quote.content != address {
-                continue;
+            if !got {
+                return Err(format!(
+                    "close-group peer {} did not give a valid quote for {} after {QUOTE_ATTEMPTS} tries: {last}",
+                    hex::encode(peer.peer_id),
+                    hex::encode(address)
+                ));
             }
-            if blake3::hash(&quote.pub_key).as_bytes() != &peer.peer_id {
-                continue;
-            }
-            if !payment::verify_quote(&quote) {
-                continue;
-            }
-            quoted.push(QuotedPeer {
-                peer_id: peer.peer_id,
-                conn,
-                quote,
-                commitment,
-            });
-        }
-
-        if quoted.len() < CLOSE_GROUP_SIZE {
-            return Err(format!(
-                "only {} of {CLOSE_GROUP_SIZE} peers gave a valid quote for {}",
-                quoted.len(),
-                hex::encode(address)
-            ));
         }
 
         // Compute the single-node payment split (order matches `quoted`).
@@ -357,14 +380,25 @@ impl WasmClient {
         let proof_bytes = payment::serialize_single_node_proof(peer_quotes, tx_hash, sidecars)
             .map_err(|e| format!("proof serialize failed: {e}"))?;
 
-        // PUT to each responsible peer; require a majority to accept.
+        // PUT to each responsible peer; require a majority to accept. Retry a
+        // peer whose connection blipped, same as the quote phase.
         let mut accepted = 0usize;
         let mut last_err = String::new();
         for peer in &quoted {
-            match put_chunk(&peer.conn, address, content, &proof_bytes).await {
-                Ok(true) => accepted += 1,
-                Ok(false) => {}
-                Err(e) => last_err = e,
+            for attempt in 0..QUOTE_ATTEMPTS {
+                match put_chunk(&peer.conn, address, content, &proof_bytes).await {
+                    Ok(true) => {
+                        accepted += 1;
+                        break;
+                    }
+                    Ok(false) => break, // a definitive rejection, not a blip
+                    Err(e) => {
+                        last_err = e;
+                        if attempt + 1 == QUOTE_ATTEMPTS {
+                            // give up on this peer
+                        }
+                    }
+                }
             }
         }
         if accepted < CLOSE_GROUP_MAJORITY {
