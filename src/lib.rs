@@ -229,21 +229,11 @@ impl WasmClient {
         let token = parse_eth_address(&token_addr_hex).map_err(js_err)?;
         let vault = parse_eth_address(&vault_addr_hex).map_err(js_err)?;
 
-        // 1. Self-encrypt. v1 only supports flat (non-shrunk) data maps.
+        // 1. Self-encrypt into content chunks + a data map.
         let (data_map, chunks) = self_encryption::encrypt(Bytes::from(data))
             .map_err(|e| js_err(format!("self-encryption failed: {e}")))?;
-        if data_map.is_child() {
-            return Err(js_err(
-                "large files (shrunk data maps) not yet supported".to_string(),
-            ));
-        }
 
-        // The data-map chunk: rmp-serialized map, addressed by its BLAKE3.
-        let map_bytes = rmp_serde::to_vec(&data_map)
-            .map_err(|e| js_err(format!("data map serialize failed: {e}")))?;
-        let map_address: [u8; 32] = *blake3::hash(&map_bytes).as_bytes();
-
-        // 2. Ordered store list: every content chunk, then the data-map chunk.
+        // 2. Ordered store list: every content chunk first.
         let mut items: Vec<([u8; 32], Vec<u8>)> = chunks
             .iter()
             .map(|c| {
@@ -252,6 +242,24 @@ impl WasmClient {
                 (address, content)
             })
             .collect();
+
+        // Shrink the data map: for a large file its serialized form exceeds a
+        // chunk, so it is recursively encrypted into wrapper chunks (stored
+        // here) until the root map is small. A no-op for small files
+        // (`data_map.len() <= 3`), which keeps their map flat. `get_root_data_map`
+        // walks the wrappers back on download.
+        let shrunk = self_encryption::shrink_data_map(data_map, |name, bytes| {
+            items.push((name.0, bytes.to_vec()));
+            Ok(())
+        })
+        .map_err(|e| js_err(format!("data map shrink failed: {e}")))?
+        .0;
+
+        // The data-map chunk: rmp-serialized (possibly shrunk) map, addressed
+        // by its BLAKE3. This address is the public file address.
+        let map_bytes = rmp_serde::to_vec(&shrunk)
+            .map_err(|e| js_err(format!("data map serialize failed: {e}")))?;
+        let map_address: [u8; 32] = *blake3::hash(&map_bytes).as_bytes();
         items.push((map_address, map_bytes));
 
         // 3. Store each item against its responsible close group.
