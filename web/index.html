@@ -47,7 +47,15 @@ BLAKE3-Adresse und entschlüsselt sie im Browser.</p>
 </fieldset>
 
 <fieldset>
-  <legend>Upload (Devnet, ohne MetaMask — zahlt über Anvil)</legend>
+  <legend>Upload</legend>
+  <label>Zahlungsweg</label>
+  <select id="pay-method">
+    <option value="auto">MetaMask, wenn vorhanden — sonst Anvil-Devnet-Account</option>
+    <option value="anvil">Immer Anvil-Devnet-Account (kein MetaMask)</option>
+    <option value="metamask">Immer MetaMask</option>
+  </select>
+  <button id="connect-wallet" type="button">MetaMask verbinden &amp; Guthaben zeigen</button>
+  <div id="balances" style="font-size:.8rem;opacity:.85;margin-top:.4rem"></div>
   <label>Datei</label>
   <input id="upload-file" type="file">
   <button id="upload">Verbinden &amp; hochladen</button>
@@ -151,6 +159,76 @@ async function rpcCall(rpc, method, params) {
   return j.result;
 }
 
+// A MetaMask payer: adds/switches to the devnet's Anvil chain, then signs
+// each approve/payForQuotes with the user's selected account. The wasm
+// client hands us 0x-prefixed to/calldata, so we pass them straight through.
+async function makeMetaMaskPayer(manifest) {
+  const eth = window.ethereum;
+  if (!eth) throw new Error("kein window.ethereum (MetaMask nicht installiert)");
+  const chainIdHex = await rpcCall(manifest.evm.rpc_url, "eth_chainId", []);
+  const accounts = await eth.request({ method: "eth_requestAccounts" });
+  const from = accounts[0];
+  try {
+    await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
+  } catch (_) {
+    await eth.request({ method: "wallet_addEthereumChain", params: [{
+      chainId: chainIdHex,
+      chainName: "Autonomi Devnet (Anvil)",
+      rpcUrls: [manifest.evm.rpc_url],
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    }] });
+  }
+  return async (to, calldata) => {
+    const txHash = await eth.request({ method: "eth_sendTransaction", params: [{
+      from,
+      to: to.startsWith("0x") ? to : "0x" + to,
+      data: calldata.startsWith("0x") ? calldata : "0x" + calldata,
+    }] });
+    const rpc = manifest.evm.rpc_url;
+    for (let i = 0; i < 120; i++) {
+      const r = await rpcCall(rpc, "eth_getTransactionReceipt", [txHash]);
+      if (r && r.status === "0x1") return txHash.replace(/^0x/, "");
+      if (r && r.status === "0x0") throw new Error("tx reverted: " + txHash);
+      await new Promise(res => setTimeout(res, 250));
+    }
+    throw new Error("tx not mined: " + txHash);
+  };
+}
+
+// Choose a payer per the dropdown; "auto" prefers MetaMask when present.
+async function choosePayer(manifest) {
+  const method = $("pay-method").value;
+  if (method === "metamask" || (method === "auto" && window.ethereum)) {
+    log("Zahlung über MetaMask.");
+    return makeMetaMaskPayer(manifest);
+  }
+  log("Zahlung über Anvil-Devnet-Account (kein MetaMask).");
+  return makeAnvilPayer(manifest);
+}
+
+// Show the paying account's ANT (ERC-20 balanceOf) and ETH balances.
+$("connect-wallet").onclick = async () => {
+  try {
+    const manifest = await fetch($("manifest").value).then(r => r.json());
+    const rpc = manifest.evm.rpc_url;
+    let account;
+    if (window.ethereum && $("pay-method").value !== "anvil") {
+      const accs = await window.ethereum.request({ method: "eth_requestAccounts" });
+      account = accs[0];
+    } else {
+      account = (await rpcCall(rpc, "eth_accounts", []))[0];
+    }
+    const eth = await rpcCall(rpc, "eth_getBalance", [account, "latest"]);
+    // balanceOf(address) selector 0x70a08231 + 32-byte account
+    const call = "0x70a08231" + account.replace(/^0x/, "").padStart(64, "0");
+    const ant = await rpcCall(rpc, "eth_call", [{ to: manifest.evm.payment_token_address, data: call }, "latest"]);
+    const toDec = (hex) => (BigInt(hex) / 10n ** 18n).toString();
+    $("balances").textContent = `Konto ${account.slice(0,10)}… — ETH: ${toDec(eth)}, ANT: ${toDec(ant)}`;
+  } catch (e) {
+    $("balances").textContent = "Guthaben-Fehler: " + e;
+  }
+};
+
 $("upload").onclick = async () => {
   try {
     const file = $("upload-file").files[0];
@@ -161,8 +239,8 @@ $("upload").onclick = async () => {
     const t0 = performance.now();
     log(`Verbinde zu ${ip}:${port} …`);
     const client = await WasmClient.connect(ip, Number(port), $("cert-hash").value.trim(), $("peer-id").value.trim());
-    log(`PQC-Tunnel steht. Lade ${data.length} Bytes hoch (self-encrypt, Quotes, Zahlung über Anvil, PUT) …`);
-    const payer = makeAnvilPayer(manifest);
+    log(`PQC-Tunnel steht. Lade ${data.length} Bytes hoch (self-encrypt, Quotes, Zahlung, PUT) …`);
+    const payer = await choosePayer(manifest);
     const address = await client.upload(data, manifest.evm.payment_token_address.replace(/^0x/, ""), manifest.evm.payment_vault_address.replace(/^0x/, ""), payer);
     const secs = ((performance.now() - t0) / 1000).toFixed(2);
     log(`Upload fertig in ${secs}s. Datei-Adresse: ${address}`, "ok");
