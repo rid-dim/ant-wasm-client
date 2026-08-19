@@ -293,7 +293,9 @@ function applyPaymentCapabilities(m) {
 // button work on a freshly opened page without a manual click.
 async function ensureManifest() {
   if (manifest) return manifest;
-  const res = await fetch($("manifest").value);
+  // no-store: the manifest changes on every devnet restart (fresh cert hash),
+  // and a heuristically-cached copy points the page at a dead certificate.
+  const res = await fetch($("manifest").value, { cache: "no-store" });
   if (!res.ok) throw new Error(`manifest ${res.status}`);
   return applyManifest(await res.json());
 }
@@ -395,7 +397,7 @@ $("download").onclick = async () => {
 // Missing file → no gallery and no background, everything else unchanged.
 async function fetchCatalogue() {
   try {
-    const res = await fetch("./demo-catalogue.json");
+    const res = await fetch("./demo-catalogue.json", { cache: "no-store" });
     if (!res.ok) return null;
     return await res.json();
   } catch (_) {
